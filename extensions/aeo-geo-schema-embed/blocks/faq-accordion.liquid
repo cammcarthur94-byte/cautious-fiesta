@@ -1,0 +1,55 @@
+{% comment %}
+  AI AEO Structured FAQ Accordion Block
+  Renders optimized, scannable Q&A pairs for Product Detail Pages (PDP)
+{% endcomment %}
+
+{{ 'faq-accordion.css' | asset_url | stylesheet_tag }}
+
+{% assign faqs_raw = product.metafields.geo_aeo.faq_data.value %}
+
+{% if faqs_raw and faqs_raw.size > 0 %}
+  <div class="geo-aeo-faq-container" style="--faq-accent: {{ block.settings.accent_color | default: '#008060' }};">
+    {% if block.settings.heading != blank %}
+      <h3 class="geo-aeo-faq-title">{{ block.settings.heading }}</h3>
+    {% endif %}
+
+    <div class="geo-aeo-faq-list" itemscope itemtype="https://schema.org/FAQPage">
+      {% for faq in faqs_raw %}
+        <details class="geo-aeo-faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
+          <summary class="geo-aeo-faq-question" itemprop="name">
+            <span>{{ faq.question }}</span>
+            <svg class="geo-aeo-faq-icon" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </summary>
+          <div class="geo-aeo-faq-answer" itemscope itemprop="acceptedAnswer" itemtype="https://schema.org/Answer">
+            <div itemprop="text">
+              {{ faq.answer }}
+            </div>
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "AI Answer Engine FAQs",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Frequently Asked Questions"
+    },
+    {
+      "type": "color",
+      "id": "accent_color",
+      "label": "Accent Color",
+      "default": "#008060"
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,51 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "${SHOPIFY_API_KEY}"
+name = "AI GEO & AEO Optimizer"
+handle = "ai-geo-aeo-optimizer"
+application_url = "https://${HOST}"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "${SHOPIFY_DEV_STORE}"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products,write_products,read_metafields,write_metafields,read_themes,write_themes"
+
+[auth]
+redirect_urls = [
+  "https://${HOST}/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-04"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/update" ]
+  uri = "/api/webhooks/products-update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/api/webhooks/app-uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app_subscriptions_update" ]
+  uri = "/api/webhooks/app_subscriptions_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "customers/data_request" ]
+  uri = "/api/webhooks/gdpr"
+
+  [[webhooks.subscriptions]]
+  topics = [ "customers/redact" ]
+  uri = "/api/webhooks/gdpr"
+
+  [[webhooks.subscriptions]]
+  topics = [ "shop/redact" ]
+  uri = "/api/webhooks/gdpr"
+
+[pos]
+embedded = false
+

@@ -1,0 +1,13 @@
+{
+  "name": "AI GEO & AEO Rich Snippets",
+  "blocks": {
+    "jsonld-embed": {
+      "name": "AI JSON-LD Schema",
+      "description": "Injects structured schema.org markup for AI Overview and Search bots."
+    },
+    "faq-accordion": {
+      "name": "AI Answer Engine FAQs",
+      "description": "Displays structured, scannable product FAQs."
+    }
+  }
+}

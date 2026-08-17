@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/worker/process-queue",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/re-audit",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}

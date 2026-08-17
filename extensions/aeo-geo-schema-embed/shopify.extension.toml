@@ -1,0 +1,14 @@
+api_version = "2024-04"
+
+[[extensions]]
+name = "AI GEO/AEO Schema & Rich Snippets"
+handle = "aeo-geo-schema-embed"
+type = "theme"
+
+[[extensions.targeting]]
+target = "body"
+module = "./blocks/jsonld-embed.liquid"
+
+[[extensions.targeting]]
+target = "section"
+module = "./blocks/faq-accordion.liquid"
