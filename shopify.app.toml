@@ -18,6 +18,7 @@ scopes = "read_products,write_products,read_metafields,write_metafields,read_the
 redirect_urls = [
   "https://${HOST}/api/auth/callback"
 ]
+use_legacy_install_flow = true
 
 [webhooks]
 api_version = "2024-04"

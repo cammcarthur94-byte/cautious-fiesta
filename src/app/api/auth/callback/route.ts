@@ -5,11 +5,12 @@ import { upsertSession } from '@/lib/shopify/session';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/auth/callback?code=...&hmac=...&shop=...&state=...&timestamp=...
+ * GET /api/auth/callback?code=...&hmac=...&shop=...&state=...&timestamp=...&host=...
  *
- * Handles the OAuth callback from Shopify after merchant grants consent.
+ * Handles the OAuth callback from Shopify after merchant installation/consent.
  * Validates HMAC, exchanges authorization code for access token,
- * stores the session, registers webhooks, and redirects to the app dashboard.
+ * stores session, registers webhooks, and returns a strict HTTP 302 redirect
+ * directly to the embedded app UI with `shop` and `host` parameters.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
     const shop = searchParams.get('shop');
     const state = searchParams.get('state');
     const hmac = searchParams.get('hmac');
-    const timestamp = searchParams.get('timestamp');
+    const hostParamFromUrl = searchParams.get('host');
 
     // Validate required params
     if (!code || !shop || !state || !hmac) {
@@ -91,15 +92,27 @@ export async function GET(req: NextRequest) {
       scope,
     });
 
-    // Register webhooks via Admin API
+    // Register mandatory webhooks
     await registerWebhooks(shop, accessToken);
 
-    // Redirect to the embedded app dashboard
-    const appUrl = process.env.SHOPIFY_APP_URL || `https://${req.headers.get('host')}`;
-    const embedUrl = `https://${shop}/admin/apps/${apiKey}`;
+    // Resolve base64 host parameter for Shopify App Bridge initialization
+    const hostParam =
+      hostParamFromUrl || Buffer.from(`${shop}/admin`).toString('base64');
 
-    const response = NextResponse.redirect(embedUrl);
-    // Clear the OAuth state cookie
+    // Resolve app base URL
+    const appUrl =
+      process.env.SHOPIFY_APP_URL ||
+      `https://${req.headers.get('host') || 'localhost:3000'}`;
+
+    // Construct destination URL for App Bridge: /?shop={shop}&host={encoded_host}
+    const targetUrl = new URL('/', appUrl);
+    targetUrl.searchParams.set('shop', shop);
+    targetUrl.searchParams.set('host', hostParam);
+
+    // Return strict HTTP 302 redirect for Shopify automated test compliance
+    const response = NextResponse.redirect(targetUrl.toString(), 302);
+
+    // Clear OAuth CSRF state cookie
     response.cookies.set('shopify_oauth_state', '', {
       httpOnly: true,
       secure: true,
@@ -119,8 +132,6 @@ export async function GET(req: NextRequest) {
 
 /**
  * Register mandatory webhooks with the Shopify Admin API.
- * These are also declared in shopify.app.toml for CLI-managed registration,
- * but we register programmatically as a safety net.
  */
 async function registerWebhooks(shop: string, accessToken: string) {
   const appUrl = process.env.SHOPIFY_APP_URL || '';
