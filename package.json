@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:reset": "shopify app dev --reset",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
