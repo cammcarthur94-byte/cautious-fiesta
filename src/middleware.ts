@@ -80,8 +80,8 @@ export function middleware(req: NextRequest) {
   // If valid shop: frame-ancestors https://[shop].myshopify.com https://admin.shopify.com;
   // If missing/invalid: frame-ancestors 'none';
   const cspHeader = shopDomain
-    ? `frame-ancestors https://${shopDomain} https://admin.shopify.com;`
-    : `frame-ancestors 'none';`;
+    ? `frame-ancestors https://${shopDomain} https://admin.shopify.com https://*.myshopify.com;`
+    : `frame-ancestors https://*.myshopify.com https://admin.shopify.com;`;
 
   // 3. In demo mode or standalone mode, allow through with CSP applied
   if (isDemo) {
