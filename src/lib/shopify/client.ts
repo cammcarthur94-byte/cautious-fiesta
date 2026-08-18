@@ -21,3 +21,24 @@ export async function createShopifyGraphQLClient(shopDomain: string, accessToken
 
   return new shopify.clients.Graphql({ session });
 }
+
+/**
+ * Execute a direct fetch request against Shopify Admin GraphQL API (2026-04).
+ */
+export async function executeShopifyAdminGraphQL(
+  shopDomain: string,
+  accessToken: string,
+  query: string,
+  variables: Record<string, any> = {}
+) {
+  const response = await fetch(`https://${shopDomain}/admin/api/2026-04/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': accessToken,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  return response;
+}
