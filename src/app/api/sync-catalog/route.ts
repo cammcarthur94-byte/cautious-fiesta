@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createShopifyGraphQLClient } from '@/lib/shopify/client';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { getSessionByShop } from '@/lib/shopify/session';
+import { checkShopQuota } from '@/lib/billing/plan-limits';
 
 /**
  * GraphQL Query for fetching catalog products with cursor pagination.
@@ -50,6 +51,19 @@ export async function POST(req: NextRequest) {
 
     if (!shopDomain) {
       shopDomain = 'demo-store.myshopify.com';
+    }
+
+    // Verify shop plan quota limit before syncing
+    const quotaStatus = await checkShopQuota(shopDomain);
+    if (!quotaStatus.hasQuota) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Monthly AI audit quota reached (${quotaStatus.usedCount}/${quotaStatus.planLimit} audits used) for your active ${quotaStatus.planName.toUpperCase()} plan. Please upgrade your subscription to sync and audit more products.`,
+          quotaStatus,
+        },
+        { status: 429 }
+      );
     }
 
     // Resolve offline access token from session store if not passed in request body
@@ -192,6 +206,7 @@ export async function POST(req: NextRequest) {
       hasNextPage: pageInfo.hasNextPage || false,
       endCursor: pageInfo.endCursor || null,
       shopId,
+      quotaStatus,
     });
   } catch (error: any) {
     console.error('Catalog Sync Error:', error);

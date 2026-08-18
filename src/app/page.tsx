@@ -48,7 +48,8 @@ export default function DashboardPage() {
 
   // Billing usage state
   const [usageCount, setUsageCount] = useState<number>(0);
-  const planLimit = 25; // 25 free audits per month
+  const [planLimit, setPlanLimit] = useState<number>(25);
+  const [planName, setPlanName] = useState<string>('free');
 
   const fetchCatalog = useCallback(async () => {
     setIsLoading(true);
@@ -59,6 +60,8 @@ export default function DashboardPage() {
       if (data.products) {
         setProducts(data.products);
         setUsageCount(data.optimizationsUsed || 0);
+        if (data.planLimit) setPlanLimit(data.planLimit);
+        if (data.planName) setPlanName(data.planName);
       } else {
         setFetchError('Failed to parse products catalog.');
       }
@@ -74,13 +77,22 @@ export default function DashboardPage() {
   }, [fetchCatalog]);
 
   const handleSyncCatalog = async () => {
+    if (usageCount >= planLimit) {
+      alert(`Monthly AI audit quota reached (${usageCount}/${planLimit}) for your ${planName.toUpperCase()} plan. Please upgrade to sync more products.`);
+      return;
+    }
+
     setIsSyncing(true);
     try {
-      await fetch('/api/sync-catalog', {
+      const res = await fetch('/api/sync-catalog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopDomain }),
       });
+      const data = await res.json();
+      if (!data.success && data.error) {
+        alert(data.error);
+      }
       await fetchCatalog();
     } catch (e: any) {
       console.error('Catalog Sync Error:', e);
@@ -212,11 +224,13 @@ export default function DashboardPage() {
           content: 'Sync Catalog',
           onAction: handleSyncCatalog,
           loading: isSyncing,
+          disabled: usageCount >= planLimit,
         }}
         secondaryActions={[
           {
             content: 'Bulk Audit Catalog',
             onAction: () => setIsBatchModalOpen(true),
+            disabled: usageCount >= planLimit,
           },
           {
             content: 'Plans & Usage',
@@ -228,16 +242,18 @@ export default function DashboardPage() {
           {/* Usage Quota Banner */}
           <Layout.Section>
             <Banner
-              title={`Monthly Free Tier Quota: ${usageCount} / ${planLimit} AI Audits Used`}
+              title={`Monthly ${planName.toUpperCase()} Quota: ${usageCount} / ${planLimit} AI Audits Used`}
               tone={usageCount >= planLimit ? 'warning' : 'info'}
               action={{
-                content: 'Upgrade to Growth Plan',
+                content: 'Upgrade Plan',
                 url: `/pricing?shop=${encodeURIComponent(shopDomain)}`,
               }}
             >
               <BlockStack gap="200">
                 <Text as="p" variant="bodySm">
-                  Free tier includes 25 AI catalog audits each month. Upgrade anytime for unlimited catalog optimizations.
+                  {usageCount >= planLimit
+                    ? `You have reached your monthly limit of ${planLimit} AI catalog audits for the ${planName.toUpperCase()} plan. Please upgrade to Growth or Enterprise to continue optimizing products.`
+                    : `Your active ${planName.toUpperCase()} plan includes ${planLimit} AI audits per month. Upgrade anytime for higher limits and unlimited real-time tracking.`}
                 </Text>
                 <ProgressBar
                   progress={Math.min(100, Math.round((usageCount / planLimit) * 100))}

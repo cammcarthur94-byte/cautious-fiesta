@@ -3,6 +3,7 @@ import { getMockProductsWithAudits } from '@/lib/mock/sample-catalog';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { runDeterministicAudit } from '@/lib/scoring/deterministic';
 import { ShopifyProductItem } from '@/lib/scoring/types';
+import { checkShopQuota } from '@/lib/billing/plan-limits';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
     const category = searchParams.get('category') || 'all';
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '50', 10);
-    const shopDomain = searchParams.get('shop') || '';
+    const shopDomain = searchParams.get('shop') || 'demo-store.myshopify.com';
 
     const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -54,11 +55,17 @@ export async function GET(req: NextRequest) {
       products = products.filter(p => (p.audit?.aioBreakdown.score || 0) < 60);
     }
 
+    const quotaStatus = await checkShopQuota(shopDomain);
+
     return NextResponse.json({
       success: true,
       count: products.length,
       page,
       products,
+      optimizationsUsed: quotaStatus.usedCount,
+      planLimit: quotaStatus.planLimit,
+      planName: quotaStatus.planName,
+      hasQuota: quotaStatus.hasQuota,
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -80,7 +87,7 @@ async function fetchLiveProducts(
   let query = supabase
     .from('products')
     .select('*')
-    .order('last_synced_at', { ascending: false })
+    .order('synced_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (shopDomain) {
@@ -139,4 +146,3 @@ async function fetchLiveProducts(
     return product;
   });
 }
-

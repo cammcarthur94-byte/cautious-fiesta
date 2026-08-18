@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { evaluateProductWithGemini, SchemaError } from '@/lib/gemini-evaluator';
+import { checkShopQuota } from '@/lib/billing/plan-limits';
 
 const BATCH_SIZE = 5;
 const MAX_RETRY_LIMIT = 3;
@@ -98,6 +99,23 @@ async function handleCronQueueProcessor(req: NextRequest) {
           throw new Error('Product catalog row missing from products table.');
         }
 
+        // Fetch shop domain
+        const { data: shop } = await supabase.from('shops').select('shop_domain').eq('id', shopId).single();
+        const shopDomain = shop?.shop_domain || 'demo-store.myshopify.com';
+
+        // Verify shop plan quota before processing
+        const quotaStatus = await checkShopQuota(shopDomain);
+        if (!quotaStatus.hasQuota) {
+          await supabase
+            .from('audit_queue')
+            .update({
+              status: 'queued',
+              error_message: `QUOTA_EXCEEDED: Monthly plan quota limit reached (${quotaStatus.usedCount}/${quotaStatus.planLimit}). Please upgrade.`,
+            })
+            .eq('id', queueId);
+          throw new Error(`Plan quota limit reached for shop ${shopDomain}.`);
+        }
+
         try {
           // Execute Gemini Evaluation Engine
           const evaluation = await evaluateProductWithGemini({
@@ -145,10 +163,10 @@ async function handleCronQueueProcessor(req: NextRequest) {
             await supabase.rpc('increment_optimization_usage', { target_shop_id: shopId });
           } catch (rpcErr) {
             // Fallback manual count increment if RPC function is not created
-            const { data: shop } = await supabase.from('shops').select('optimizations_used_this_month').eq('id', shopId).single();
-            if (shop) {
+            const { data: shopRecord } = await supabase.from('shops').select('optimizations_used_this_month').eq('id', shopId).single();
+            if (shopRecord) {
               await supabase.from('shops').update({
-                optimizations_used_this_month: (shop.optimizations_used_this_month || 0) + 1,
+                optimizations_used_this_month: (shopRecord.optimizations_used_this_month || 0) + 1,
                 updated_at: new Date().toISOString(),
               }).eq('id', shopId);
             }
@@ -158,9 +176,7 @@ async function handleCronQueueProcessor(req: NextRequest) {
         } catch (itemErr: any) {
           const errorMessage = itemErr.message || 'Worker processing error.';
           const isDeadLetter = currentRetries >= MAX_RETRY_LIMIT;
-          const isSchemaError = itemErr instanceof SchemaError;
 
-          // If retry_count >= 3 or severe error, mark as permanently failed (Dead Letter Queue)
           const newStatus = isDeadLetter ? 'failed' : 'queued';
           const errorLog = isDeadLetter
             ? `DEAD_LETTER_QUEUE: Failed ${MAX_RETRY_LIMIT} consecutive attempts. ${errorMessage}`
