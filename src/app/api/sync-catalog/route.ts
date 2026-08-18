@@ -6,7 +6,7 @@ import { checkShopQuota } from '@/lib/billing/plan-limits';
 import { runDeterministicAudit } from '@/lib/scoring/deterministic';
 
 /**
- * GraphQL Query for fetching catalog products with cursor pagination.
+ * Enhanced GraphQL Query for fetching catalog products, variants, and media.
  */
 const PRODUCTS_GRAPHQL_QUERY = `
   query SyncCatalogProducts($first: Int!, $after: String) {
@@ -23,6 +23,28 @@ const PRODUCTS_GRAPHQL_QUERY = `
           productType
           featuredImage {
             url
+            altText
+          }
+          variants(first: 5) {
+            edges {
+              node {
+                id
+                price
+                sku
+              }
+            }
+          }
+          media(first: 5) {
+            edges {
+              node {
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -47,7 +69,7 @@ function parseShopifyId(gid: string): number {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { cursor = null, limit = 100 } = body;
+    const { cursor = null, limit = 50 } = body;
     let shopDomain = body.shopDomain || body.shop_domain || body.shop;
 
     if (!shopDomain) {
@@ -67,7 +89,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Resolve offline access token from session store if not passed in request body
+    // Retrieve offline access token from Supabase session store
     let accessToken = body.accessToken || process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_ADMIN_TOKEN;
     if (!accessToken && shopDomain && shopDomain !== 'demo-store.myshopify.com') {
       const session = await getSessionByShop(shopDomain);
@@ -76,7 +98,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If access token is missing for a real store, prompt for OAuth authorization
+    // If access token is invalid or missing, prompt for OAuth re-authentication
     if (!accessToken && shopDomain !== 'demo-store.myshopify.com') {
       return NextResponse.json(
         {
@@ -119,12 +141,12 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // REAL SHOPIFY GRAPHQL SYNC FLOW
+    // REAL SHOPIFY ADMIN GRAPHQL SYNC FLOW
     // =========================================================================
     const client = await createShopifyGraphQLClient(shopDomain, accessToken || 'demo_token');
     const response: any = await client.request(PRODUCTS_GRAPHQL_QUERY, {
       variables: {
-        first: Math.min(limit, 100),
+        first: Math.min(limit, 50),
         after: cursor || null,
       },
     });
@@ -149,6 +171,11 @@ export async function POST(req: NextRequest) {
       const node = edge.node;
       const numericId = parseShopifyId(node.id);
 
+      // Extract first media image URL if available
+      const mediaImageUrl = node.media?.edges?.[0]?.node?.image?.url;
+      const featuredImageUrl = node.featuredImage?.url;
+      const imageUrl = mediaImageUrl || featuredImageUrl || null;
+
       return {
         shop_id: shopId,
         shop_domain: shopDomain,
@@ -159,12 +186,12 @@ export async function POST(req: NextRequest) {
         vendor: node.vendor || '',
         product_type: node.productType || '',
         status: (node.status || 'active').toLowerCase(),
-        image_url: node.featuredImage?.url || null,
+        image_url: imageUrl,
         synced_at: new Date().toISOString(),
       };
     });
 
-    // Upsert product records into `products` table
+    // Upsert product records into Supabase `products` table
     const { data: upsertedProducts, error: productsError } = await supabase
       .from('products')
       .upsert(productRows, {
@@ -205,7 +232,7 @@ export async function POST(req: NextRequest) {
 
     await supabase.from('product_audits').upsert(auditRows, { onConflict: 'shopify_product_id' });
 
-    // Insert audit queue records
+    // Insert corresponding rows into `audit_queue` table with status = 'queued'
     if (upsertedProducts && upsertedProducts.length > 0) {
       const queueRows = upsertedProducts.map((p) => ({
         shop_id: shopId,
