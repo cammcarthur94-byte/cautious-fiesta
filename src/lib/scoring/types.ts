@@ -43,7 +43,9 @@ export interface AuditResult {
     geminiSummary?: string;
   };
   generatedFix?: {
-    optimizedDescription: string;
+    optimizedDescription: any;
+    metaDescription?: string;
+    imageAltTags?: Array<{ image_index: number; suggested_alt: string }>;
     faqs: FAQPair[];
     jsonLdSchema: Record<string, any>;
     generatedAt: string;

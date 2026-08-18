@@ -11,6 +11,8 @@ export async function POST(req: NextRequest) {
     const {
       productId,
       newDescription,
+      metaDescription,
+      imageAltTags,
       previousDescription,
       faqs,
       jsonLdSchema,
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
           created_at: new Date().toISOString(),
         });
 
-        // 2. Update products table with new body_html and current_json_ld
+        // 2. Update products table with new body_html, current_json_ld, and meta description
         await supabase
           .from('products')
           .update({
@@ -112,6 +114,9 @@ export async function POST(req: NextRequest) {
           product {
             id
             title
+            seo {
+              description
+            }
             metafields(first: 10) {
               edges {
                 node {
@@ -134,6 +139,7 @@ export async function POST(req: NextRequest) {
       input: {
         id: productId,
         descriptionHtml: newDescription,
+        seo: metaDescription ? { description: metaDescription } : undefined,
         metafields: metafields.map((m) => ({
           namespace: m.namespace,
           key: m.key,

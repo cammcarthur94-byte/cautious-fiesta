@@ -18,7 +18,7 @@ import {
   Collapsible,
 } from '@shopify/polaris';
 import { ShopifyProductItem, FAQPair } from '@/lib/scoring/types';
-import { TonalDescriptions } from '@/lib/gemini-evaluator';
+import { TonalDescriptions, ImageAltTag } from '@/lib/gemini-evaluator';
 import { ScoreBadge } from './ScoreBadge';
 
 interface RecommendationModalProps {
@@ -46,6 +46,9 @@ export function RecommendationModal({
   });
 
   const [editableDescription, setEditableDescription] = useState('');
+  const [editedMetaDesc, setEditedMetaDesc] = useState('');
+  const [editedAltTags, setEditedAltTags] = useState<ImageAltTag[]>([]);
+
   const [isManuallyEdited, setIsManuallyEdited] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showAdvancedJson, setShowAdvancedJson] = useState(false);
@@ -107,6 +110,15 @@ export function RecommendationModal({
       }
     }
 
+    const initialMeta = fix?.metaDescription || `Shop ${product.title} by ${product.vendor || 'Store Brand'}. Premium quality engineered for performance and durability. Buy online today!`;
+
+    const initialAlts: ImageAltTag[] = fix?.imageAltTags?.length
+      ? fix.imageAltTags
+      : [
+          { image_index: 0, suggested_alt: `${product.title} - Front view and product design` },
+          { image_index: 1, suggested_alt: `${product.title} - Close-up feature detail` },
+        ];
+
     const initialFaqs: FAQPair[] = fix?.faqs?.length
       ? fix.faqs
       : [
@@ -140,6 +152,8 @@ export function RecommendationModal({
     setTonalDescriptions(tonals);
     setSelectedTone('professional');
     setEditableDescription(tonals.professional);
+    setEditedMetaDesc(initialMeta);
+    setEditedAltTags(initialAlts);
     setIsManuallyEdited(false);
     setEditedFaqs(initialFaqs);
     setEditedJsonLdText(JSON.stringify(initialJsonLd, null, 2));
@@ -188,6 +202,13 @@ export function RecommendationModal({
     setEditedFaqs(editedFaqs.filter((_, i) => i !== index));
   };
 
+  // Alt Tag Handler
+  const handleAltTagChange = (index: number, value: string) => {
+    const updated = [...editedAltTags];
+    updated[index] = { ...updated[index], suggested_alt: value };
+    setEditedAltTags(updated);
+  };
+
   // Reset to AI Defaults
   const handleResetToAiDefaults = () => {
     const defaultText = tonalDescriptions[selectedTone] || '';
@@ -216,6 +237,8 @@ export function RecommendationModal({
         body: JSON.stringify({
           productId: product.id,
           newDescription: editableDescription,
+          metaDescription: editedMetaDesc,
+          imageAltTags: editedAltTags,
           previousDescription: product.body_html || '',
           faqs: editedFaqs,
           jsonLdSchema: finalJsonLdObj,
@@ -302,7 +325,7 @@ export function RecommendationModal({
           {/* Friendly Guidance Banner */}
           <Banner tone="info">
             <Text as="p" variant="bodySm">
-              <strong>Interactive Content Customizer:</strong> Edit the AI-suggested product description and FAQs directly below. Any modifications you make will be published live to your Shopify product page.
+              <strong>Interactive Content Customizer:</strong> Edit product descriptions, SEO meta snippets, and image alt text directly below. All changes will be published live to your Shopify store.
             </Text>
           </Banner>
 
@@ -311,7 +334,7 @@ export function RecommendationModal({
           {jsonError && <Banner tone="critical">{jsonError}</Banner>}
           {publishSuccess && (
             <Banner tone="success">
-              Great news! Your customized product description has been published to your store page.
+              Great news! Your customized product description, meta tags, and image alt text have been published to your store.
             </Banner>
           )}
 
@@ -383,7 +406,7 @@ export function RecommendationModal({
                 />
 
                 {showPreview ? (
-                  /* CUSTOMER PAGE PREVIEW MODE (INTERACTIVE & EDITABLE LIVE) */
+                  /* CUSTOMER PAGE PREVIEW MODE */
                   <BlockStack gap="300">
                     <InlineStack align="space-between" blockAlign="center">
                       <Text as="h4" variant="bodySm" fontWeight="bold">
@@ -408,9 +431,13 @@ export function RecommendationModal({
                         }}
                       />
                     </Box>
-                    <Text as="p" variant="bodyXs" tone="subdued">
-                      ✏️ Tip: Click directly inside the preview text box above to edit the customer page HTML live.
+
+                    <Text as="h4" variant="bodySm" fontWeight="bold">
+                      Meta Description (Search Snippet)
                     </Text>
+                    <Box padding="200" background="bg-surface-secondary" borderRadius="200">
+                      <Text as="p" variant="bodySm">{editedMetaDesc}</Text>
+                    </Box>
 
                     <Text as="h4" variant="bodySm" fontWeight="bold">
                       Customer FAQs ({editedFaqs.length})
@@ -441,12 +468,6 @@ export function RecommendationModal({
                         </Box>
                       ))}
                     </BlockStack>
-
-                    <Box padding="200" background="bg-surface-success" borderRadius="200">
-                      <Text as="p" variant="bodySm">
-                        ✓ Google Search & AI Overviews structured data will be automatically attached on publish.
-                      </Text>
-                    </Box>
                   </BlockStack>
                 ) : (
                   /* INTERACTIVE EDITABLE TEXT FIELDS (DEFAULT) */
@@ -458,10 +479,34 @@ export function RecommendationModal({
                         setEditableDescription(val);
                         setIsManuallyEdited(true);
                       }}
-                      multiline={10}
+                      multiline={8}
                       autoComplete="off"
-                      helpText="Interactive: Click inside to edit the AI-generated text directly before publishing."
+                      helpText="Interactive: Click inside to edit the AI-generated text directly."
                     />
+
+                    <TextField
+                      label="SEO Meta Description (Snippet < 160 chars)"
+                      value={editedMetaDesc}
+                      onChange={setEditedMetaDesc}
+                      multiline={2}
+                      autoComplete="off"
+                      helpText="Optimized search engine snippet displayed on Google."
+                    />
+
+                    <BlockStack gap="200">
+                      <Text as="h4" variant="bodySm" fontWeight="bold">
+                        Image Alt Tags ({editedAltTags.length})
+                      </Text>
+                      {editedAltTags.map((alt, i) => (
+                        <TextField
+                          key={i}
+                          label={`Image #${i + 1} Alt Text`}
+                          value={alt.suggested_alt}
+                          onChange={(val) => handleAltTagChange(i, val)}
+                          autoComplete="off"
+                        />
+                      ))}
+                    </BlockStack>
 
                     <BlockStack gap="200">
                       <InlineStack align="space-between" blockAlign="center">

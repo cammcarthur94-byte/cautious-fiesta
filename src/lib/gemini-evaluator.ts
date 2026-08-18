@@ -28,6 +28,11 @@ export interface EngineBreakdown {
   gemini: EngineMetrics;
 }
 
+export interface ImageAltTag {
+  image_index: number;
+  suggested_alt: string;
+}
+
 export interface GeminiEvaluationOutput {
   scores: {
     geo: number; // Integer 0-100
@@ -43,6 +48,8 @@ export interface GeminiEvaluationOutput {
   };
   recommendations: {
     optimized_description: TonalDescriptions | string;
+    meta_description?: string;
+    image_alt_tags?: ImageAltTag[];
     structured_faqs: Array<{
       question: string;
       answer: string;
@@ -97,11 +104,12 @@ In the "engine_breakdown" field, evaluate search visibility and citation context
 - perplexity: Score (0-100), sentiment ("positive", "neutral", "negative"), citation_context
 - gemini: Score (0-100), sentiment ("positive", "neutral", "negative"), citation_context
 
-Tonal Variations Requirement:
-For the "optimized_description" field, you MUST generate THREE distinct tonal variations:
-1. professional: Direct, feature-focused, and objective HTML description.
-2. engaging: Story-driven, enthusiastic, and customer-centric HTML description.
-3. concise: Minimalist, highly scannable, and punchy HTML description.
+Comprehensive Recommendations Requirement:
+1. optimized_description: THREE distinct tonal variations (professional, engaging, concise).
+2. meta_description: Concise, high-intent search meta snippet strictly UNDER 160 characters.
+3. image_alt_tags: Array of descriptive, keyword-rich image alt text recommendations.
+4. structured_faqs: 2-3 conversational Q&A pairings for Answer Engine Optimization.
+5. generated_json_ld: Schema.org Product & FAQPage microdata object.
 
 You MUST respond strictly with valid JSON conforming to the requested schema.
 `;
@@ -196,6 +204,21 @@ export async function evaluateProductWithGemini(
                 },
                 required: ['professional', 'engaging', 'concise'],
               },
+              meta_description: {
+                type: SchemaType.STRING,
+                description: 'Search meta description snippet under 160 characters',
+              },
+              image_alt_tags: {
+                type: SchemaType.ARRAY,
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    image_index: { type: SchemaType.INTEGER },
+                    suggested_alt: { type: SchemaType.STRING },
+                  },
+                  required: ['image_index', 'suggested_alt'],
+                },
+              },
               structured_faqs: {
                 type: SchemaType.ARRAY,
                 items: {
@@ -217,7 +240,7 @@ export async function evaluateProductWithGemini(
                 },
               },
             },
-            required: ['optimized_description', 'structured_faqs', 'generated_json_ld'],
+            required: ['optimized_description', 'meta_description', 'image_alt_tags', 'structured_faqs', 'generated_json_ld'],
           },
         },
         required: ['scores', 'engine_breakdown', 'breakdown', 'recommendations'],
@@ -226,7 +249,7 @@ export async function evaluateProductWithGemini(
   });
 
   const prompt = `
-Evaluate this product for GEO, AEO, AIO search readiness and multi-engine visibility (ChatGPT, Perplexity, Gemini) and return structured JSON:
+Evaluate this product for GEO, AEO, AIO search readiness, multi-engine visibility (ChatGPT, Perplexity, Gemini), and generate meta descriptions & image alt tags:
 
 PRODUCT TITLE: ${product.title}
 PRODUCT HANDLE: ${product.handle}
@@ -373,6 +396,19 @@ export function generateAlgorithmicFallback(
     },
   };
 
+  const meta_description = `Shop ${title} by ${brand}. High-performance design engineered for maximum durability, certified safety, and fast delivery. Buy online now!`.slice(0, 155);
+
+  const image_alt_tags: ImageAltTag[] = [
+    {
+      image_index: 0,
+      suggested_alt: `${title} by ${brand} - Front view showing premium finish and engineering details`,
+    },
+    {
+      image_index: 1,
+      suggested_alt: `${title} in use - Highlighting key functional performance features`,
+    },
+  ];
+
   const faqs = [
     {
       question: `What makes the ${title} unique?`,
@@ -465,6 +501,8 @@ export function generateAlgorithmicFallback(
         engaging,
         concise,
       },
+      meta_description,
+      image_alt_tags,
       structured_faqs: faqs,
       generated_json_ld,
     },
