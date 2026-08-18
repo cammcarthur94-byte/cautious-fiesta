@@ -1,12 +1,36 @@
 -- ==============================================================================
 -- Complete Supabase Production Migration Script for Shopify AI Search Optimizer
--- Includes: Clean Drop/Recreate + Alter Column Safeguards for smooth execution
+-- Includes: Column Backfills + Drop & Recreate for 100% Conflict-Free Execution
 -- ==============================================================================
 
 -- Enable pgcrypto extension for UUID generation if needed
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Drop existing tables with CASCADE to ensure a clean, conflict-free migration
+-- Drop existing indexes to prevent column missing errors during table modifications
+DROP INDEX IF EXISTS idx_shops_shop_domain CASCADE;
+DROP INDEX IF EXISTS idx_stores_shop_domain CASCADE;
+DROP INDEX IF EXISTS idx_products_shop_shopify_prod CASCADE;
+DROP INDEX IF EXISTS idx_products_shop_domain CASCADE;
+DROP INDEX IF EXISTS idx_product_audits_shopify_prod CASCADE;
+DROP INDEX IF EXISTS idx_audit_queue_status_created CASCADE;
+DROP INDEX IF EXISTS idx_audit_queue_shop_id CASCADE;
+DROP INDEX IF EXISTS idx_product_revisions_shopify_prod CASCADE;
+
+-- Safe Column Backfills in case legacy tables exist in Supabase
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'products') THEN
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_domain TEXT;
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'shops') THEN
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS shop_domain TEXT;
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'stores') THEN
+        ALTER TABLE stores ADD COLUMN IF NOT EXISTS shop_domain TEXT;
+    END IF;
+END $$;
+
+-- Drop existing tables with CASCADE to guarantee fresh, exact schema definitions
 DROP TABLE IF EXISTS audit_queue CASCADE;
 DROP TABLE IF EXISTS product_revisions CASCADE;
 DROP TABLE IF EXISTS recommendations CASCADE;
