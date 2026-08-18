@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [products, setProducts] = useState<ShopifyProductItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [selectedTab, setSelectedTab] = useState(0);
@@ -109,6 +110,56 @@ export default function DashboardPage() {
       console.error('Catalog Sync Error:', e);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleImportFullCatalog = async () => {
+    if (usageCount >= planLimit) {
+      alert(`Monthly AI audit quota reached (${usageCount}/${planLimit}) for your ${planName.toUpperCase()} plan. Please upgrade to import more products.`);
+      return;
+    }
+
+    setIsImporting(true);
+    let totalImported = 0;
+    let hasNextPage = true;
+    let cursor: string | null = null;
+
+    try {
+      while (hasNextPage) {
+        const pageRes: Response = await fetch('/api/sync-catalog', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shopDomain, cursor, limit: 100 }),
+        });
+        const pageData: any = await pageRes.json();
+
+        if (!pageData.success) {
+          if (pageData.reauthUrl) {
+            if (confirm(`Shopify OAuth permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
+              if (window.top) {
+                window.top.location.href = pageData.reauthUrl;
+              } else {
+                window.location.href = pageData.reauthUrl;
+              }
+              return;
+            }
+          } else if (pageData.error) {
+            alert(pageData.error);
+          }
+          break;
+        }
+
+        totalImported += pageData.syncedCount || 0;
+        hasNextPage = pageData.hasNextPage || false;
+        cursor = pageData.endCursor || null;
+      }
+
+      await fetchCatalog();
+      alert(`Catalog Import Completed! All ${totalImported || products.length} products from your store have been successfully imported and audited for AI search readiness.`);
+    } catch (e: any) {
+      console.error('Full Catalog Import Error:', e);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -232,12 +283,18 @@ export default function DashboardPage() {
       <Page
         title="AI Search Optimization"
         primaryAction={{
-          content: 'Sync Catalog',
-          onAction: handleSyncCatalog,
-          loading: isSyncing,
+          content: isImporting ? 'Importing Catalog...' : 'Import Catalog',
+          onAction: handleImportFullCatalog,
+          loading: isImporting,
           disabled: usageCount >= planLimit,
         }}
         secondaryActions={[
+          {
+            content: 'Sync Catalog',
+            onAction: handleSyncCatalog,
+            loading: isSyncing,
+            disabled: usageCount >= planLimit,
+          },
           {
             content: 'Bulk Audit Catalog',
             onAction: () => setIsBatchModalOpen(true),
@@ -486,10 +543,11 @@ export default function DashboardPage() {
               ) : (
                 <Card>
                   <EmptyState
-                    heading="Audit and optimize your store catalog for AI search"
+                    heading="Import your product catalog for AI search optimization"
                     action={{
-                      content: 'Sync Product Catalog',
-                      onAction: handleSyncCatalog,
+                      content: isImporting ? 'Importing Catalog...' : 'Import Catalog',
+                      onAction: handleImportFullCatalog,
+                      loading: isImporting,
                     }}
                     secondaryAction={{
                       content: 'Explore Plans & Pricing',
@@ -498,7 +556,7 @@ export default function DashboardPage() {
                     image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
                   >
                     <Text as="p" variant="bodyMd">
-                      Scan your catalog to audit Generative Engine Optimization (GEO), Answer Engine
+                      Scan and import all products from your catalog to audit Generative Engine Optimization (GEO), Answer Engine
                       Optimization (AEO), and JSON-LD AI Overviews schemas powered by Gemini.
                     </Text>
                   </EmptyState>
