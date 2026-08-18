@@ -47,7 +47,7 @@ export function RecommendationModal({
 
   const [editableDescription, setEditableDescription] = useState('');
   const [isManuallyEdited, setIsManuallyEdited] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [showAdvancedJson, setShowAdvancedJson] = useState(false);
 
   // Editable FAQs & JSON-LD
@@ -144,7 +144,7 @@ export function RecommendationModal({
     setEditedFaqs(initialFaqs);
     setEditedJsonLdText(JSON.stringify(initialJsonLd, null, 2));
     setJsonError(null);
-    setIsEditMode(false);
+    setShowPreview(false);
     setShowAdvancedJson(false);
   }, [product, isOpen]);
 
@@ -245,7 +245,7 @@ export function RecommendationModal({
     <Modal
       open={isOpen}
       onClose={onClose}
-      title="Product AI Optimization & Tone Selector"
+      title="Product AI Optimization & Content Customizer"
       primaryAction={{
         content: isPublishing ? 'Publishing...' : 'Approve & Publish to Store',
         onAction: handleApproveAndPublish,
@@ -261,7 +261,7 @@ export function RecommendationModal({
     >
       <Modal.Section>
         <BlockStack gap="400">
-          {/* Header Product Info & Mode Switch */}
+          {/* Header Product Info & Action Bar */}
           <InlineStack align="space-between" blockAlign="center">
             <BlockStack gap="100">
               <Text as="h2" variant="headingMd">
@@ -283,10 +283,10 @@ export function RecommendationModal({
               )}
 
               <Button
-                variant={isEditMode ? 'primary' : 'secondary'}
-                onClick={() => setIsEditMode(!isEditMode)}
+                variant={showPreview ? 'primary' : 'secondary'}
+                onClick={() => setShowPreview(!showPreview)}
               >
-                {isEditMode ? 'View Customer Preview' : 'Edit Text'}
+                {showPreview ? 'Back to Editor' : 'Customer Page Preview'}
               </Button>
 
               {isManuallyEdited && (
@@ -302,7 +302,7 @@ export function RecommendationModal({
           {/* Friendly Guidance Banner */}
           <Banner tone="info">
             <Text as="p" variant="bodySm">
-              <strong>Multi-Tone Selection:</strong> Select a voice tone below to customize how your product sounds to shoppers and AI search assistants like <strong>ChatGPT</strong> and <strong>Google AI Overviews</strong>.
+              <strong>Interactive Content Customizer:</strong> Edit the AI-suggested product description and FAQs directly below. Any modifications you make will be published live to your Shopify product page.
             </Text>
           </Banner>
 
@@ -322,7 +322,7 @@ export function RecommendationModal({
               <BlockStack gap="300">
                 <InlineStack align="space-between">
                   <Text as="h3" variant="headingSm">
-                    Current Page Copy
+                    Current Store Copy
                   </Text>
                   <Badge tone="attention">Original</Badge>
                 </InlineStack>
@@ -359,15 +359,15 @@ export function RecommendationModal({
               </BlockStack>
             </Card>
 
-            {/* Right Column: AI Tonal Selector & Custom Editor */}
+            {/* Right Column: AI Tonal Selector & Interactive Editable Text Fields */}
             <Card>
               <BlockStack gap="300">
                 <InlineStack align="space-between">
                   <Text as="h3" variant="headingSm">
-                    AI Recommendation & Tone
+                    Optimized AI Recommendation
                   </Text>
                   <Badge tone={isManuallyEdited ? 'attention' : 'success'}>
-                    {isManuallyEdited ? 'Custom Edited' : `${selectedTone.toUpperCase()} Tone`}
+                    {isManuallyEdited ? 'Manually Edited' : `${selectedTone.toUpperCase()} Tone`}
                   </Badge>
                 </InlineStack>
 
@@ -375,18 +375,62 @@ export function RecommendationModal({
 
                 {/* Polaris Tone Selector Dropdown */}
                 <Select
-                  label="Select Writing Tone"
+                  label="Writing Tone"
                   options={toneOptions}
                   value={selectedTone}
                   onChange={handleToneChange}
-                  helpText="Switching tones automatically updates the recommended description text."
+                  helpText="Select a tone to update the recommended description text."
                 />
 
-                {isEditMode ? (
-                  /* EDIT MODE */
+                {showPreview ? (
+                  /* CUSTOMER PAGE PREVIEW MODE */
+                  <BlockStack gap="300">
+                    <Text as="h4" variant="bodySm" fontWeight="bold">
+                      Customer HTML Preview ({selectedTone})
+                    </Text>
+                    <Box
+                      padding="300"
+                      background="bg-surface-secondary"
+                      borderRadius="200"
+                    >
+                      <div
+                        style={{ fontSize: '13px', lineHeight: '1.5' }}
+                        dangerouslySetInnerHTML={{ __html: editableDescription }}
+                      />
+                    </Box>
+
+                    <Text as="h4" variant="bodySm" fontWeight="bold">
+                      Customer FAQs ({editedFaqs.length})
+                    </Text>
+                    <BlockStack gap="200">
+                      {editedFaqs.map((faq, i) => (
+                        <Box
+                          key={i}
+                          padding="200"
+                          background="bg-surface-secondary"
+                          borderRadius="200"
+                        >
+                          <Text as="p" variant="bodySm" fontWeight="bold">
+                            Q: {faq.question}
+                          </Text>
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            A: {faq.answer}
+                          </Text>
+                        </Box>
+                      ))}
+                    </BlockStack>
+
+                    <Box padding="200" background="bg-surface-success" borderRadius="200">
+                      <Text as="p" variant="bodySm">
+                        ✓ Google Search & AI Overviews structured data will be automatically attached on publish.
+                      </Text>
+                    </Box>
+                  </BlockStack>
+                ) : (
+                  /* INTERACTIVE EDITABLE TEXT FIELDS (DEFAULT) */
                   <BlockStack gap="400">
                     <TextField
-                      label="Product Page Description"
+                      label="Optimized Description (Editable)"
                       value={editableDescription}
                       onChange={(val) => {
                         setEditableDescription(val);
@@ -394,16 +438,14 @@ export function RecommendationModal({
                       }}
                       multiline={10}
                       autoComplete="off"
-                      helpText="Feel free to edit the text directly. Any changes will be published to your store."
+                      helpText="Interactive: Click inside to edit the AI-generated text directly before publishing."
                     />
 
                     <BlockStack gap="200">
                       <InlineStack align="space-between" blockAlign="center">
-                        <BlockStack gap="050">
-                          <Text as="h4" variant="bodySm" fontWeight="bold">
-                            Shopper Questions & Answers ({editedFaqs.length})
-                          </Text>
-                        </BlockStack>
+                        <Text as="h4" variant="bodySm" fontWeight="bold">
+                          Shopper Questions & Answers ({editedFaqs.length})
+                        </Text>
 
                         <Button size="slim" onClick={handleAddFaq}>
                           + Add Question
@@ -473,56 +515,12 @@ export function RecommendationModal({
                       </Collapsible>
                     </Box>
                   </BlockStack>
-                ) : (
-                  /* PREVIEW MODE */
-                  <BlockStack gap="300">
-                    <Text as="h4" variant="bodySm" fontWeight="bold">
-                      Recommended Product Description ({selectedTone})
-                    </Text>
-                    <Box
-                      padding="300"
-                      background="bg-surface-secondary"
-                      borderRadius="200"
-                    >
-                      <div
-                        style={{ fontSize: '13px', lineHeight: '1.5' }}
-                        dangerouslySetInnerHTML={{ __html: editableDescription }}
-                      />
-                    </Box>
-
-                    <Text as="h4" variant="bodySm" fontWeight="bold">
-                      Customer FAQs ({editedFaqs.length})
-                    </Text>
-                    <BlockStack gap="200">
-                      {editedFaqs.map((faq, i) => (
-                        <Box
-                          key={i}
-                          padding="200"
-                          background="bg-surface-secondary"
-                          borderRadius="200"
-                        >
-                          <Text as="p" variant="bodySm" fontWeight="bold">
-                            Q: {faq.question}
-                          </Text>
-                          <Text as="p" variant="bodySm" tone="subdued">
-                            A: {faq.answer}
-                          </Text>
-                        </Box>
-                      ))}
-                    </BlockStack>
-
-                    <Box padding="200" background="bg-surface-success" borderRadius="200">
-                      <Text as="p" variant="bodySm">
-                        ✓ Google Search & AI Overviews structured data will be automatically attached on publish.
-                      </Text>
-                    </Box>
-                  </BlockStack>
                 )}
               </BlockStack>
             </Card>
-            </InlineGrid>
-          </BlockStack>
-        </Modal.Section>
-      </Modal>
-    );
-  }
+          </InlineGrid>
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  );
+}

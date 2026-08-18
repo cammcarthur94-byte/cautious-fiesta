@@ -6,7 +6,7 @@ import { getSessionByShop } from '@/lib/shopify/session';
 /**
  * GraphQL Query for fetching catalog products with cursor pagination.
  */
-export const PRODUCTS_GRAPHQL_QUERY = `
+const PRODUCTS_GRAPHQL_QUERY = `
   query SyncCatalogProducts($first: Int!, $after: String) {
     products(first: $first, after: $after) {
       edges {
