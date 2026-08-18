@@ -96,11 +96,12 @@ export default function DashboardPage() {
       const data = await res.json();
       if (!data.success) {
         if (data.reauthUrl) {
+          const fullReauthUrl = new URL(data.reauthUrl, window.location.origin).toString();
           if (confirm(`Shopify OAuth permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
             if (window.top) {
-              window.top.location.href = data.reauthUrl;
+              window.top.location.href = fullReauthUrl;
             } else {
-              window.location.href = data.reauthUrl;
+              window.location.href = fullReauthUrl;
             }
             return;
           }
@@ -139,11 +140,12 @@ export default function DashboardPage() {
 
         if (!pageData.success) {
           if (pageData.reauthUrl) {
+            const fullReauthUrl = new URL(pageData.reauthUrl, window.location.origin).toString();
             if (confirm(`Shopify OAuth permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
               if (window.top) {
-                window.top.location.href = pageData.reauthUrl;
+                window.top.location.href = fullReauthUrl;
               } else {
-                window.location.href = pageData.reauthUrl;
+                window.location.href = fullReauthUrl;
               }
               return;
             }

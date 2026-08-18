@@ -157,25 +157,53 @@ export async function POST(req: NextRequest) {
     console.log('[SyncCatalog] Resolved Shop UUID:', shopId);
 
     // =========================================================================
-    // 4. FETCH PRODUCTS VIA SHOPIFY ADMIN GRAPHQL API (2026-04)
+    // 4. FETCH PRODUCTS VIA SHOPIFY ADMIN GRAPHQL API (2026-04) WITH TIMEOUT
     // =========================================================================
     const shopifyApiUrl = `https://${shopDomain}/admin/api/2026-04/graphql.json`;
     console.log('[SyncCatalog] Issuing GraphQL POST to:', shopifyApiUrl);
 
-    const gqlResponse = await fetch(shopifyApiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': accessToken || 'demo_token',
-      },
-      body: JSON.stringify({
-        query: PRODUCTS_GRAPHQL_QUERY,
-        variables: {
-          first: Math.min(limit, 50),
-          after: cursor || null,
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
+
+    let gqlResponse: Response;
+    try {
+      gqlResponse = await fetch(shopifyApiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken || 'demo_token',
         },
-      }),
-    });
+        signal: controller.signal,
+        body: JSON.stringify({
+          query: PRODUCTS_GRAPHQL_QUERY,
+          variables: {
+            first: Math.min(limit, 50),
+            after: cursor || null,
+          },
+        }),
+      });
+    } catch (gqlFetchErr: any) {
+      if (gqlFetchErr.name === 'AbortError') {
+        console.error('[SyncCatalog] Shopify Admin API Request Timed Out (10s AbortController)');
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Shopify Admin API request timed out after 10 seconds. Please check network connection and try again.',
+          },
+          { status: 504 }
+        );
+      }
+      console.error('[SyncCatalog] Shopify Admin API Network Fetch Error:', gqlFetchErr.message);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Network error connecting to Shopify Admin API: ${gqlFetchErr.message}`,
+        },
+        { status: 502 }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     console.log('[SyncCatalog] Shopify Admin API HTTP Status Code:', gqlResponse.status);
 
