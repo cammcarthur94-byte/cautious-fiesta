@@ -6,9 +6,12 @@
     "dev": "next dev",
     "dev:reset": "shopify app dev --reset",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 0.0.0.0",
     "lint": "next lint",
     "shopify": "shopify"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

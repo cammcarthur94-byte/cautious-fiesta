@@ -481,7 +481,7 @@ export default function DashboardPage() {
                         {metrics.avgAeo} / 100
                       </Text>
                       <Text as="p" variant="bodyXs" tone="subdued">
-                        Structured Q&A pairing allows Perplexity's deep research assistant to cite your catalog instantly.
+                        Structured Q&A pairing allows Perplexity&apos;s deep research assistant to cite your catalog instantly.
                       </Text>
                     </BlockStack>
                   </Box>
