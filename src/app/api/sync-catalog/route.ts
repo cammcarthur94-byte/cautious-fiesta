@@ -3,6 +3,7 @@ import { createShopifyGraphQLClient } from '@/lib/shopify/client';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { getSessionByShop } from '@/lib/shopify/session';
 import { checkShopQuota } from '@/lib/billing/plan-limits';
+import { runDeterministicAudit } from '@/lib/scoring/deterministic';
 
 /**
  * GraphQL Query for fetching catalog products with cursor pagination.
@@ -116,7 +117,35 @@ export async function POST(req: NextRequest) {
 
       await supabase.from('products').upsert(devStoreProducts, { onConflict: 'shop_id,shopify_product_id' });
 
-      // Queue items for evaluation
+      // Upsert initial audits
+      const devAudits = devStoreProducts.map((p) => {
+        const audit = runDeterministicAudit({
+          id: String(p.shopify_product_id),
+          title: p.title,
+          handle: p.handle,
+          body_html: p.body_html,
+          vendor: p.vendor,
+          product_type: p.product_type,
+          status: p.status as any,
+          image_url: p.image_url,
+        });
+
+        return {
+          shop_domain: shopDomain,
+          shopify_product_id: p.shopify_product_id,
+          overall_score: audit.overallScore,
+          geo_score: audit.geoBreakdown.score,
+          aeo_score: audit.aeoBreakdown.score,
+          aio_score: audit.aioBreakdown.score,
+          issues: audit.issues,
+          recommendations: audit.recommendations,
+          audited_at: new Date().toISOString(),
+        };
+      });
+
+      await supabase.from('product_audits').upsert(devAudits, { onConflict: 'shopify_product_id' });
+
+      // Queue items for background evaluation
       const queueRows = devStoreProducts.map((p) => ({
         shop_id: shopId,
         product_id: p.shopify_product_id,
@@ -193,6 +222,34 @@ export async function POST(req: NextRequest) {
       console.error('Supabase Product Upsert Error:', productsError);
       throw new Error(`Failed to upsert products to database: ${productsError.message}`);
     }
+
+    // Upsert initial audits for immediate display
+    const auditRows = productRows.map((p: any) => {
+      const audit = runDeterministicAudit({
+        id: String(p.shopify_product_id),
+        title: p.title,
+        handle: p.handle,
+        body_html: p.body_html,
+        vendor: p.vendor,
+        product_type: p.product_type,
+        status: p.status,
+        image_url: p.image_url,
+      });
+
+      return {
+        shop_domain: shopDomain,
+        shopify_product_id: p.shopify_product_id,
+        overall_score: audit.overallScore,
+        geo_score: audit.geoBreakdown.score,
+        aeo_score: audit.aeoBreakdown.score,
+        aio_score: audit.aioBreakdown.score,
+        issues: audit.issues,
+        recommendations: audit.recommendations,
+        audited_at: new Date().toISOString(),
+      };
+    });
+
+    await supabase.from('product_audits').upsert(auditRows, { onConflict: 'shopify_product_id' });
 
     // Insert audit queue records
     if (upsertedProducts && upsertedProducts.length > 0) {

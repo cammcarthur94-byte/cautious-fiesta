@@ -16,16 +16,16 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const shopDomain = searchParams.get('shop') || 'demo-store.myshopify.com';
 
-    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !process.env.SUPABASE_SERVICE_ROLE_KEY;
+    let products: ShopifyProductItem[] = [];
 
-    let products: ShopifyProductItem[];
-
-    if (isDemo) {
-      // Demo mode: use mock catalog
-      products = getMockProductsWithAudits();
-    } else {
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
       // Live mode: fetch from Supabase with joined audit scores
       products = await fetchLiveProducts(shopDomain, page, limit);
+    }
+
+    // If no products found in Supabase for shopDomain, fallback to mock products for initial preview
+    if (!products || products.length === 0) {
+      products = getMockProductsWithAudits();
     }
 
     // Apply client-side filters
@@ -80,69 +80,76 @@ async function fetchLiveProducts(
   page: number,
   limit: number
 ): Promise<ShopifyProductItem[]> {
-  const supabase = getServiceSupabase();
-  const offset = (page - 1) * limit;
+  try {
+    const supabase = getServiceSupabase();
+    const offset = (page - 1) * limit;
 
-  // Fetch products
-  let query = supabase
-    .from('products')
-    .select('*')
-    .order('synced_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    // Resolve shopId for shopDomain if present
+    const { data: shopRecord } = await supabase
+      .from('shops')
+      .select('id')
+      .eq('shop_domain', shopDomain)
+      .single();
 
-  if (shopDomain) {
-    query = query.eq('shop_domain', shopDomain);
-  }
+    // Query products
+    let query = supabase.from('products').select('*').order('synced_at', { ascending: false }).range(offset, offset + limit - 1);
 
-  const { data: products, error } = await query;
-  if (error || !products) return [];
-
-  // Fetch latest audits for these products
-  const productIds = products.map((p: any) => p.shopify_product_id);
-  const { data: audits } = await supabase
-    .from('product_audits')
-    .select('*')
-    .in('shopify_product_id', productIds)
-    .order('audited_at', { ascending: false });
-
-  // Create a map of latest audit per product
-  const auditMap = new Map<string, any>();
-  for (const audit of audits || []) {
-    if (!auditMap.has(audit.shopify_product_id)) {
-      auditMap.set(audit.shopify_product_id, audit);
+    if (shopRecord?.id) {
+      query = query.or(`shop_id.eq.${shopRecord.id},shop_domain.eq.${shopDomain}`);
+    } else if (shopDomain && shopDomain !== 'demo-store.myshopify.com') {
+      query = query.eq('shop_domain', shopDomain);
     }
-  }
 
-  // Map to ShopifyProductItem with audit data
-  return products.map((p: any) => {
-    const product: ShopifyProductItem = {
-      id: p.shopify_product_id,
-      title: p.title,
-      handle: p.handle,
-      body_html: p.body_html || '',
-      vendor: p.vendor || '',
-      product_type: p.product_type || '',
-      status: p.status || 'active',
-      image_url: p.image_url,
-    };
+    const { data: products, error } = await query;
+    if (error || !products || products.length === 0) return [];
 
-    // If we have a stored audit, use it; otherwise compute fresh
-    const storedAudit = auditMap.get(p.shopify_product_id);
-    if (storedAudit) {
-      product.audit = {
-        productId: p.shopify_product_id,
-        overallScore: storedAudit.overall_score,
-        geoBreakdown: { score: storedAudit.geo_score, weight: 0.40, subScores: {} },
-        aeoBreakdown: { score: storedAudit.aeo_score, weight: 0.35, subScores: {} },
-        aioBreakdown: { score: storedAudit.aio_score, weight: 0.25, subScores: {} },
-        issues: storedAudit.issues || [],
-        recommendations: storedAudit.recommendations || {},
-        auditedAt: storedAudit.audited_at,
+    // Fetch latest audits for these products
+    const productIds = products.map((p: any) => p.shopify_product_id);
+    const { data: audits } = await supabase
+      .from('product_audits')
+      .select('*')
+      .in('shopify_product_id', productIds)
+      .order('audited_at', { ascending: false });
+
+    const auditMap = new Map<string, any>();
+    for (const audit of audits || []) {
+      if (!auditMap.has(audit.shopify_product_id)) {
+        auditMap.set(audit.shopify_product_id, audit);
+      }
+    }
+
+    return products.map((p: any) => {
+      const product: ShopifyProductItem = {
+        id: p.shopify_product_id,
+        title: p.title,
+        handle: p.handle,
+        body_html: p.body_html || '',
+        vendor: p.vendor || 'Store Brand',
+        product_type: p.product_type || 'General',
+        status: p.status || 'active',
+        image_url: p.image_url,
       };
-    } else {
-      product.audit = runDeterministicAudit(product);
-    }
 
-    return product;
-  });
+      const storedAudit = auditMap.get(p.shopify_product_id);
+      if (storedAudit) {
+        product.audit = {
+          productId: p.shopify_product_id,
+          overallScore: storedAudit.overall_score,
+          geoBreakdown: { score: storedAudit.geo_score, weight: 0.40, subScores: {} },
+          aeoBreakdown: { score: storedAudit.aeo_score, weight: 0.35, subScores: {} },
+          aioBreakdown: { score: storedAudit.aio_score, weight: 0.25, subScores: {} },
+          issues: storedAudit.issues || [],
+          recommendations: storedAudit.recommendations || {},
+          auditedAt: storedAudit.audited_at,
+        };
+      } else {
+        product.audit = runDeterministicAudit(product);
+      }
+
+      return product;
+    });
+  } catch (e) {
+    console.error('Fetch live products error:', e);
+    return [];
+  }
 }
