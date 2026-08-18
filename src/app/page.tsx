@@ -385,6 +385,7 @@ export default function DashboardPage() {
                 <ProductTable
                   products={filteredProducts}
                   onReviewFixes={handleReviewFixes}
+                  onRetryAudit={handleReviewFixes}
                 />
               ) : (
                 <Card>

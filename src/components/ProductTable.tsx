@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   Text,
+  InlineStack,
   useIndexResourceState,
 } from '@shopify/polaris';
 import { ScoreBadge } from './ScoreBadge';
@@ -16,9 +17,10 @@ import { ShopifyProductItem } from '@/lib/scoring/types';
 interface ProductTableProps {
   products: ShopifyProductItem[];
   onReviewFixes: (product: ShopifyProductItem) => void;
+  onRetryAudit?: (product: ShopifyProductItem) => void;
 }
 
-export function ProductTable({ products, onReviewFixes }: ProductTableProps) {
+export function ProductTable({ products, onReviewFixes, onRetryAudit }: ProductTableProps) {
   const resourceName = {
     singular: 'product',
     plural: 'products',
@@ -93,9 +95,16 @@ export function ProductTable({ products, onReviewFixes }: ProductTableProps) {
         </IndexTable.Cell>
 
         <IndexTable.Cell>
-          <Button size="slim" onClick={() => onReviewFixes(product)}>
-            Review Fixes
-          </Button>
+          <InlineStack gap="100">
+            <Button size="slim" onClick={() => onReviewFixes(product)}>
+              Review Fixes
+            </Button>
+            {onRetryAudit && (
+              <Button size="slim" variant="tertiary" onClick={() => onRetryAudit(product)}>
+                Retry Audit
+              </Button>
+            )}
+          </InlineStack>
         </IndexTable.Cell>
       </IndexTable.Row>
     );
