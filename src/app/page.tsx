@@ -126,15 +126,12 @@ export default function DashboardPage() {
     let result = [...products];
 
     if (selectedTab === 1) {
-      // Needs Audit (<50)
       result = result.filter((p) => (p.audit?.overallScore || 0) < 50);
     } else if (selectedTab === 2) {
-      // Pending Review (50-79)
       result = result.filter(
         (p) => (p.audit?.overallScore || 0) >= 50 && (p.audit?.overallScore || 0) < 80
       );
     } else if (selectedTab === 3) {
-      // Optimized (80+)
       result = result.filter((p) => (p.audit?.overallScore || 0) >= 80);
     }
 
@@ -151,8 +148,8 @@ export default function DashboardPage() {
       if (sortKey === 'overall_desc') return overallB - overallA;
       if (sortKey === 'overall_asc') return overallA - overallB;
 
-      if (sortKey === 'status_asc') return overallA - overallB; // Needs Audit (<50) first
-      if (sortKey === 'status_desc') return overallB - overallA; // Fully Optimized (80+) first
+      if (sortKey === 'status_asc') return overallA - overallB;
+      if (sortKey === 'status_desc') return overallB - overallA;
 
       if (sortKey === 'geo_desc') return geoB - geoA;
       if (sortKey === 'aeo_desc') return aeoB - aeoA;
@@ -211,7 +208,6 @@ export default function DashboardPage() {
     <ErrorBoundary>
       <Page
         title="AI Search Optimization"
-        subtitle="Catalog Diagnostics, GEO/AEO/AIO Scoring & Gemini Schema Generator"
         primaryAction={{
           content: 'Sync Catalog',
           onAction: handleSyncCatalog,
@@ -241,17 +237,18 @@ export default function DashboardPage() {
             >
               <BlockStack gap="200">
                 <Text as="p" variant="bodySm">
-                  Free tier includes 25 AI catalog audits each month. Upgrade anytime for unlimited catalog optimizations and real-time competitor tracking.
+                  Free tier includes 25 AI catalog audits each month. Upgrade anytime for unlimited catalog optimizations.
                 </Text>
                 <ProgressBar
                   progress={Math.min(100, Math.round((usageCount / planLimit) * 100))}
+                  size="small"
                   tone={usageCount >= planLimit ? 'highlight' : 'primary'}
                 />
               </BlockStack>
             </Banner>
           </Layout.Section>
 
-          {/* KPI Analytics Cards Grid */}
+          {/* Metric Summary Cards */}
           <Layout.Section>
             <InlineGrid columns={{ xs: 1, sm: 2, md: 4 }} gap="400">
               <Card>
@@ -336,13 +333,13 @@ export default function DashboardPage() {
             </InlineGrid>
           </Layout.Section>
 
-          {/* Multi-Engine Visibility Breakdown Section */}
+          {/* Generative Search Engine Visibility Section */}
           <Layout.Section>
             <Card>
               <BlockStack gap="300">
                 <InlineStack align="space-between">
                   <Text as="h3" variant="headingMd">
-                    Generative Search Engine Visibility Breakdown
+                    Generative Search Engine Visibility
                   </Text>
                   <Badge tone="info">Live Engine Diagnostics</Badge>
                 </InlineStack>
