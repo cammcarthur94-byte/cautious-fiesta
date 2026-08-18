@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     let shopDomain = body.shopDomain || body.shop_domain || body.shop;
 
     if (!shopDomain) {
-      shopDomain = 'demo-store.myshopify.com';
+      shopDomain = 'visibly-test-store.myshopify.com';
     }
 
     console.log('[SyncCatalog] Target Shop Domain:', shopDomain);

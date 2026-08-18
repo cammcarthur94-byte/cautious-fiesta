@@ -29,7 +29,7 @@ import { useSearchParams } from 'next/navigation';
 
 export default function DashboardPage() {
   const searchParams = useSearchParams();
-  const shopDomain = searchParams.get('shop') || 'demo-store.myshopify.com';
+  const shopDomain = searchParams.get('shop') || 'visibly-test-store.myshopify.com';
 
   const [products, setProducts] = useState<ShopifyProductItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
