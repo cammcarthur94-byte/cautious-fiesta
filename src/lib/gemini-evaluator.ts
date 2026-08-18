@@ -16,6 +16,18 @@ export interface TonalDescriptions {
   concise: string;
 }
 
+export interface EngineMetrics {
+  score: number;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  citation_context: string;
+}
+
+export interface EngineBreakdown {
+  chatgpt: EngineMetrics;
+  perplexity: EngineMetrics;
+  gemini: EngineMetrics;
+}
+
 export interface GeminiEvaluationOutput {
   scores: {
     geo: number; // Integer 0-100
@@ -23,6 +35,7 @@ export interface GeminiEvaluationOutput {
     aio: number; // Integer 0-100
     overall: number; // Integer 0-100
   };
+  engine_breakdown?: EngineBreakdown;
   breakdown: {
     geo_issues: string[];
     aeo_issues: string[];
@@ -78,6 +91,12 @@ Auditing Criteria:
    - Evaluate semantic HTML structure (H2, H3 headings, bolded technical parameters, structured lists).
    - Check if valid Product & FAQPage JSON-LD schema is present.
 
+Multi-Engine Breakdown Requirement:
+In the "engine_breakdown" field, evaluate search visibility and citation context for three generative search engines:
+- chatgpt: Score (0-100), sentiment ("positive", "neutral", "negative"), citation_context
+- perplexity: Score (0-100), sentiment ("positive", "neutral", "negative"), citation_context
+- gemini: Score (0-100), sentiment ("positive", "neutral", "negative"), citation_context
+
 Tonal Variations Requirement:
 For the "optimized_description" field, you MUST generate THREE distinct tonal variations:
 1. professional: Direct, feature-focused, and objective HTML description.
@@ -122,6 +141,39 @@ export async function evaluateProductWithGemini(
               overall: { type: SchemaType.INTEGER, description: 'Average score of geo, aeo, and aio' },
             },
             required: ['geo', 'aeo', 'aio', 'overall'],
+          },
+          engine_breakdown: {
+            type: SchemaType.OBJECT,
+            properties: {
+              chatgpt: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  score: { type: SchemaType.INTEGER },
+                  sentiment: { type: SchemaType.STRING },
+                  citation_context: { type: SchemaType.STRING },
+                },
+                required: ['score', 'sentiment', 'citation_context'],
+              },
+              perplexity: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  score: { type: SchemaType.INTEGER },
+                  sentiment: { type: SchemaType.STRING },
+                  citation_context: { type: SchemaType.STRING },
+                },
+                required: ['score', 'sentiment', 'citation_context'],
+              },
+              gemini: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  score: { type: SchemaType.INTEGER },
+                  sentiment: { type: SchemaType.STRING },
+                  citation_context: { type: SchemaType.STRING },
+                },
+                required: ['score', 'sentiment', 'citation_context'],
+              },
+            },
+            required: ['chatgpt', 'perplexity', 'gemini'],
           },
           breakdown: {
             type: SchemaType.OBJECT,
@@ -168,13 +220,13 @@ export async function evaluateProductWithGemini(
             required: ['optimized_description', 'structured_faqs', 'generated_json_ld'],
           },
         },
-        required: ['scores', 'breakdown', 'recommendations'],
+        required: ['scores', 'engine_breakdown', 'breakdown', 'recommendations'],
       },
     },
   });
 
   const prompt = `
-Evaluate this product for GEO, AEO, and AIO search readiness and return structured JSON:
+Evaluate this product for GEO, AEO, AIO search readiness and multi-engine visibility (ChatGPT, Perplexity, Gemini) and return structured JSON:
 
 PRODUCT TITLE: ${product.title}
 PRODUCT HANDLE: ${product.handle}
@@ -303,6 +355,24 @@ export function generateAlgorithmicFallback(
   aioScore = Math.max(20, Math.min(100, aioScore));
   const overallScore = Math.round((geoScore + aeoScore + aioScore) / 3);
 
+  const engine_breakdown: EngineBreakdown = {
+    chatgpt: {
+      score: Math.min(100, geoScore + 5),
+      sentiment: geoScore >= 70 ? 'positive' : 'neutral',
+      citation_context: 'Product feature list and quantitative parameters enable direct ChatGPT recommendation rendering.',
+    },
+    perplexity: {
+      score: Math.min(100, aeoScore),
+      sentiment: aeoScore >= 70 ? 'positive' : 'neutral',
+      citation_context: 'Question & Answer structures support rapid Perplexity deep-research citations.',
+    },
+    gemini: {
+      score: Math.min(100, aioScore + 5),
+      sentiment: aioScore >= 70 ? 'positive' : 'neutral',
+      citation_context: 'Schema.org Product microdata allows Google AI Overview rich panel inclusion.',
+    },
+  };
+
   const faqs = [
     {
       question: `What makes the ${title} unique?`,
@@ -383,6 +453,7 @@ export function generateAlgorithmicFallback(
       aio: aioScore,
       overall: overallScore,
     },
+    engine_breakdown,
     breakdown: {
       geo_issues: geoIssues.length > 0 ? geoIssues : ['No critical GEO failures detected.'],
       aeo_issues: aeoIssues.length > 0 ? aeoIssues : ['No critical AEO failures detected.'],

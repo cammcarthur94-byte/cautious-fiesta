@@ -3,6 +3,8 @@ api_version = "2024-04"
 [[extensions]]
 name = "AI GEO/AEO Schema & Rich Snippets"
 handle = "aeo-geo-schema-embed"
+
+uid = "eaec7571-6cd7-ed0d-1b31-80016f10a53cc7672e34"
 type = "theme"
 
 [[extensions.targeting]]
