@@ -16,7 +16,7 @@ import {
   ExternalLink,
   Flame,
 } from 'lucide-react';
-import { PLAN_TIERS, PlanTierKey, PlanConfig, UsageCheckResult } from '@/lib/billing';
+import { PLAN_TIERS, type PlanTierKey, type PlanConfig, type UsageCheckResult } from '@/lib/billing/plans';
 
 export default function PricingPage() {
   const searchParams = useSearchParams();

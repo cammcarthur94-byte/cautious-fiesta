@@ -19,7 +19,6 @@ import {
   Thumbnail,
 } from '@shopify/polaris';
 import { ShopifyProductItem, FAQPair } from '@/lib/scoring/types';
-import { TonalDescriptions, ImageAltTag } from '@/lib/gemini-evaluator';
 import { ScoreBadge } from './ScoreBadge';
 
 interface RecommendationModalProps {

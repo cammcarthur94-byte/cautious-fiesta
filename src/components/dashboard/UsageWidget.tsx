@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Zap, AlertTriangle, ArrowUpRight, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { UsageCheckResult } from '@/lib/billing';
+import type { UsageCheckResult } from '@/lib/billing/plans';
 
 interface UsageWidgetProps {
   shopDomain?: string;
