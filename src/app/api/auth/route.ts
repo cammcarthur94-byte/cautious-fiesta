@@ -22,11 +22,14 @@ export async function GET(req: NextRequest) {
     }
 
     const apiKey = process.env.SHOPIFY_API_KEY;
-    const hostHeader = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000';
+    const forwardedHost = req.headers.get('x-forwarded-host');
+    const hostHeader = forwardedHost || req.headers.get('host') || 'localhost:3000';
     const protocol = req.headers.get('x-forwarded-proto') || (hostHeader.includes('localhost') ? 'http' : 'https');
 
     let appUrl = process.env.SHOPIFY_APP_URL;
-    if (!appUrl || appUrl.includes('localhost')) {
+    if (forwardedHost) {
+      appUrl = `https://${forwardedHost}`;
+    } else if (!appUrl) {
       appUrl = `${protocol}://${hostHeader}`;
     }
     appUrl = appUrl.replace(/\/$/, '');
@@ -42,6 +45,14 @@ export async function GET(req: NextRequest) {
 
     const nonce = generateNonce();
     const redirectUri = `${appUrl}/api/auth/callback`;
+
+    console.log('[OAuth Init] Constructing OAuth Auth URL:', {
+      shop,
+      client_id: apiKey,
+      redirect_uri: redirectUri,
+      forwardedHost,
+      hostHeader,
+    });
 
     const authUrl = new URL(`https://${shop}/admin/oauth/authorize`);
     authUrl.searchParams.set('client_id', apiKey);
