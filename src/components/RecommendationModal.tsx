@@ -383,21 +383,34 @@ export function RecommendationModal({
                 />
 
                 {showPreview ? (
-                  /* CUSTOMER PAGE PREVIEW MODE */
+                  /* CUSTOMER PAGE PREVIEW MODE (INTERACTIVE & EDITABLE LIVE) */
                   <BlockStack gap="300">
-                    <Text as="h4" variant="bodySm" fontWeight="bold">
-                      Customer HTML Preview ({selectedTone})
-                    </Text>
+                    <InlineStack align="space-between" blockAlign="center">
+                      <Text as="h4" variant="bodySm" fontWeight="bold">
+                        Customer HTML Preview ({selectedTone})
+                      </Text>
+                      <Badge tone="info">Live Editable Preview</Badge>
+                    </InlineStack>
+
                     <Box
                       padding="300"
                       background="bg-surface-secondary"
                       borderRadius="200"
                     >
                       <div
-                        style={{ fontSize: '13px', lineHeight: '1.5' }}
+                        contentEditable
+                        suppressContentEditableWarning
+                        style={{ fontSize: '13px', lineHeight: '1.5', outline: 'none', minHeight: '120px', cursor: 'text' }}
                         dangerouslySetInnerHTML={{ __html: editableDescription }}
+                        onBlur={(e) => {
+                          setEditableDescription(e.currentTarget.innerHTML);
+                          setIsManuallyEdited(true);
+                        }}
                       />
                     </Box>
+                    <Text as="p" variant="bodyXs" tone="subdued">
+                      ✏️ Tip: Click directly inside the preview text box above to edit the customer page HTML live.
+                    </Text>
 
                     <Text as="h4" variant="bodySm" fontWeight="bold">
                       Customer FAQs ({editedFaqs.length})
@@ -410,12 +423,21 @@ export function RecommendationModal({
                           background="bg-surface-secondary"
                           borderRadius="200"
                         >
-                          <Text as="p" variant="bodySm" fontWeight="bold">
-                            Q: {faq.question}
-                          </Text>
-                          <Text as="p" variant="bodySm" tone="subdued">
-                            A: {faq.answer}
-                          </Text>
+                          <TextField
+                            label={`Question #${i + 1}`}
+                            value={faq.question}
+                            onChange={(val) => handleFaqChange(i, 'question', val)}
+                            autoComplete="off"
+                          />
+                          <Box paddingBlockStart="100">
+                            <TextField
+                              label="Answer"
+                              value={faq.answer}
+                              onChange={(val) => handleFaqChange(i, 'answer', val)}
+                              multiline={2}
+                              autoComplete="off"
+                            />
+                          </Box>
                         </Box>
                       ))}
                     </BlockStack>
