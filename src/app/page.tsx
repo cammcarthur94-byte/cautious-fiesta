@@ -18,8 +18,9 @@ import {
   Tabs,
   Box,
   Divider,
+  Select,
 } from '@shopify/polaris';
-import { ProductTable } from '@/components/ProductTable';
+import { ProductTable, SortColumn, SortDirection } from '@/components/ProductTable';
 import { RecommendationModal } from '@/components/RecommendationModal';
 import { BatchAuditModal } from '@/components/dashboard/BatchAuditModal';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -35,75 +36,60 @@ export default function DashboardPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Tabs filter state (0: All, 1: Needs Audit, 2: Pending Review, 3: Optimized)
   const [selectedTab, setSelectedTab] = useState(0);
+  const [sortKey, setSortKey] = useState<string>('overall_desc');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('overall');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('descending');
 
-  // Modals state
-  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
-  const [selectedProductForFixes, setSelectedProductForFixes] = useState<ShopifyProductItem | null>(null);
+  const [selectedProductForFixes, setSelectedProductForFixes] =
+    useState<ShopifyProductItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
 
-  // Fetch product catalog from Supabase / API
+  // Billing usage state
+  const [usageCount, setUsageCount] = useState<number>(0);
+  const planLimit = 25; // 25 free audits per month
+
   const fetchCatalog = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch('/api/products');
+      const res = await fetch(`/api/products?shop=${encodeURIComponent(shopDomain)}`);
       const data = await res.json();
-      if (data.success) {
-        setProducts(data.products || []);
+      if (data.products) {
+        setProducts(data.products);
+        setUsageCount(data.optimizationsUsed || 0);
       } else {
-        setFetchError(data.error || 'Failed to load product catalog');
+        setFetchError('Failed to parse products catalog.');
       }
-    } catch (e: any) {
-      console.error(e);
-      setFetchError(e.message || 'Network error — unable to reach the server');
+    } catch (err: any) {
+      setFetchError(err.message || 'Network error fetching products.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [shopDomain]);
 
   useEffect(() => {
     fetchCatalog();
   }, [fetchCatalog]);
 
-  // Sync Catalog handler with client-coordinated cursor pagination
   const handleSyncCatalog = async () => {
     setIsSyncing(true);
     try {
-      let hasNextPage = true;
-      let cursor: string | null = null;
-
-      while (hasNextPage) {
-        const syncResponse: Response = await fetch('/api/sync-catalog', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            shopDomain,
-            cursor,
-            limit: 50,
-          }),
-        });
-
-        const syncData: any = await syncResponse.json();
-        if (!syncData.success) {
-          console.error('Catalog Sync Error:', syncData.error);
-          break;
-        }
-
-        hasNextPage = syncData.hasNextPage ?? false;
-        cursor = syncData.endCursor ?? null;
-      }
-
+      await fetch('/api/sync-catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shopDomain }),
+      });
       await fetchCatalog();
-    } catch (err) {
-      console.error('Error during catalog sync:', err);
+    } catch (e: any) {
+      console.error('Catalog Sync Error:', e);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Calculate Metrics
+  // Metric Computations
   const metrics = useMemo(() => {
     if (products.length === 0) {
       return { avgOverall: 0, avgGeo: 0, avgAeo: 0, avgAio: 0, criticalCount: 0 };
@@ -123,24 +109,91 @@ export default function DashboardPage() {
     };
   }, [products]);
 
-  // Tabbed Filtering
+  const sortOptions = [
+    { label: 'Overall Score: Highest First', value: 'overall_desc' },
+    { label: 'Overall Score: Lowest First', value: 'overall_asc' },
+    { label: 'Status: Needs Audit First', value: 'status_asc' },
+    { label: 'Status: Fully Optimized First', value: 'status_desc' },
+    { label: 'GEO Score: Highest First', value: 'geo_desc' },
+    { label: 'AEO Score: Highest First', value: 'aeo_desc' },
+    { label: 'AIO Score: Highest First', value: 'aio_desc' },
+    { label: 'Title: A to Z', value: 'title_asc' },
+    { label: 'Title: Z to A', value: 'title_desc' },
+  ];
+
+  // Tabbed Filtering and Sorting
   const filteredProducts = useMemo(() => {
+    let result = [...products];
+
     if (selectedTab === 1) {
       // Needs Audit (<50)
-      return products.filter((p) => (p.audit?.overallScore || 0) < 50);
-    }
-    if (selectedTab === 2) {
+      result = result.filter((p) => (p.audit?.overallScore || 0) < 50);
+    } else if (selectedTab === 2) {
       // Pending Review (50-79)
-      return products.filter(
+      result = result.filter(
         (p) => (p.audit?.overallScore || 0) >= 50 && (p.audit?.overallScore || 0) < 80
       );
-    }
-    if (selectedTab === 3) {
+    } else if (selectedTab === 3) {
       // Optimized (80+)
-      return products.filter((p) => (p.audit?.overallScore || 0) >= 80);
+      result = result.filter((p) => (p.audit?.overallScore || 0) >= 80);
     }
-    return products;
-  }, [products, selectedTab]);
+
+    result.sort((a, b) => {
+      const overallA = a.audit?.overallScore || 0;
+      const overallB = b.audit?.overallScore || 0;
+      const geoA = a.audit?.geoBreakdown.score || 0;
+      const geoB = b.audit?.geoBreakdown.score || 0;
+      const aeoA = a.audit?.aeoBreakdown.score || 0;
+      const aeoB = b.audit?.aeoBreakdown.score || 0;
+      const aioA = a.audit?.aioBreakdown.score || 0;
+      const aioB = b.audit?.aioBreakdown.score || 0;
+
+      if (sortKey === 'overall_desc') return overallB - overallA;
+      if (sortKey === 'overall_asc') return overallA - overallB;
+
+      if (sortKey === 'status_asc') return overallA - overallB; // Needs Audit (<50) first
+      if (sortKey === 'status_desc') return overallB - overallA; // Fully Optimized (80+) first
+
+      if (sortKey === 'geo_desc') return geoB - geoA;
+      if (sortKey === 'aeo_desc') return aeoB - aeoA;
+      if (sortKey === 'aio_desc') return aioB - aioA;
+
+      if (sortKey === 'title_asc') return a.title.localeCompare(b.title);
+      if (sortKey === 'title_desc') return b.title.localeCompare(a.title);
+
+      return 0;
+    });
+
+    return result;
+  }, [products, selectedTab, sortKey]);
+
+  const handleSortChange = (col: SortColumn, dir: SortDirection) => {
+    setSortColumn(col);
+    setSortDirection(dir);
+    if (col === 'overall') {
+      setSortKey(dir === 'descending' ? 'overall_desc' : 'overall_asc');
+    } else if (col === 'status') {
+      setSortKey(dir === 'ascending' ? 'status_asc' : 'status_desc');
+    } else if (col === 'geo') {
+      setSortKey('geo_desc');
+    } else if (col === 'aeo') {
+      setSortKey('aeo_desc');
+    } else if (col === 'aio') {
+      setSortKey('aio_desc');
+    } else if (col === 'title') {
+      setSortKey(dir === 'ascending' ? 'title_asc' : 'title_desc');
+    }
+  };
+
+  const handleSortKeySelect = (val: string) => {
+    setSortKey(val);
+    if (val === 'overall_desc') { setSortColumn('overall'); setSortDirection('descending'); }
+    else if (val === 'overall_asc') { setSortColumn('overall'); setSortDirection('ascending'); }
+    else if (val === 'status_asc') { setSortColumn('status'); setSortDirection('ascending'); }
+    else if (val === 'status_desc') { setSortColumn('status'); setSortDirection('descending'); }
+    else if (val === 'title_asc') { setSortColumn('title'); setSortDirection('ascending'); }
+    else if (val === 'title_desc') { setSortColumn('title'); setSortDirection('descending'); }
+  };
 
   const tabs = [
     { id: 'all', content: 'All Products', panelID: 'all-products-content' },
@@ -179,18 +232,21 @@ export default function DashboardPage() {
           {/* Usage Quota Banner */}
           <Layout.Section>
             <Banner
-              title="Free Plan Optimization Usage"
-              tone="info"
+              title={`Monthly Free Tier Quota: ${usageCount} / ${planLimit} AI Audits Used`}
+              tone={usageCount >= planLimit ? 'warning' : 'info'}
               action={{
-                content: 'Upgrade Plan',
+                content: 'Upgrade to Growth Plan',
                 url: `/pricing?shop=${encodeURIComponent(shopDomain)}`,
               }}
             >
               <BlockStack gap="200">
-                <Text as="p" variant="bodyMd">
-                  You have used <strong>2 of 5</strong> monthly product optimizations included in your plan.
+                <Text as="p" variant="bodySm">
+                  Free tier includes 25 AI catalog audits each month. Upgrade anytime for unlimited catalog optimizations and real-time competitor tracking.
                 </Text>
-                <ProgressBar progress={40} size="small" />
+                <ProgressBar
+                  progress={Math.min(100, Math.round((usageCount / planLimit) * 100))}
+                  tone={usageCount >= planLimit ? 'highlight' : 'primary'}
+                />
               </BlockStack>
             </Banner>
           </Layout.Section>
@@ -350,10 +406,23 @@ export default function DashboardPage() {
             </Card>
           </Layout.Section>
 
-          {/* Filter Tabs */}
+          {/* Filter Tabs & Sort Control */}
           <Layout.Section>
-            <Card padding="0">
-              <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
+            <Card padding="300">
+              <InlineStack align="space-between" blockAlign="center" gap="400">
+                <div style={{ flexGrow: 1 }}>
+                  <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
+                </div>
+                <div style={{ minWidth: '240px' }}>
+                  <Select
+                    label="Sort items by"
+                    labelHidden
+                    options={sortOptions}
+                    value={sortKey}
+                    onChange={handleSortKeySelect}
+                  />
+                </div>
+              </InlineStack>
             </Card>
           </Layout.Section>
 
@@ -386,6 +455,9 @@ export default function DashboardPage() {
                   products={filteredProducts}
                   onReviewFixes={handleReviewFixes}
                   onRetryAudit={handleReviewFixes}
+                  sortColumn={sortColumn}
+                  sortDirection={sortDirection}
+                  onSortChange={handleSortChange}
                 />
               ) : (
                 <Card>
@@ -421,7 +493,7 @@ export default function DashboardPage() {
           onPublished={fetchCatalog}
         />
 
-        {/* Batch Audit Modal */}
+        {/* Batch Catalog Audit Modal */}
         <BatchAuditModal
           isOpen={isBatchModalOpen}
           onClose={() => setIsBatchModalOpen(false)}

@@ -14,13 +14,26 @@ import {
 import { ScoreBadge } from './ScoreBadge';
 import { ShopifyProductItem } from '@/lib/scoring/types';
 
+export type SortColumn = 'title' | 'status' | 'geo' | 'aeo' | 'aio' | 'overall';
+export type SortDirection = 'ascending' | 'descending';
+
 interface ProductTableProps {
   products: ShopifyProductItem[];
   onReviewFixes: (product: ShopifyProductItem) => void;
   onRetryAudit?: (product: ShopifyProductItem) => void;
+  sortColumn?: SortColumn;
+  sortDirection?: SortDirection;
+  onSortChange?: (column: SortColumn, direction: SortDirection) => void;
 }
 
-export function ProductTable({ products, onReviewFixes, onRetryAudit }: ProductTableProps) {
+export function ProductTable({
+  products,
+  onReviewFixes,
+  onRetryAudit,
+  sortColumn = 'overall',
+  sortDirection = 'descending',
+  onSortChange,
+}: ProductTableProps) {
   const resourceName = {
     singular: 'product',
     plural: 'products',
@@ -110,6 +123,19 @@ export function ProductTable({ products, onReviewFixes, onRetryAudit }: ProductT
     );
   });
 
+  const sortColumnIndex =
+    sortColumn === 'title'
+      ? 0
+      : sortColumn === 'status'
+      ? 1
+      : sortColumn === 'geo'
+      ? 2
+      : sortColumn === 'aeo'
+      ? 3
+      : sortColumn === 'aio'
+      ? 4
+      : 5;
+
   return (
     <Card padding="0">
       <IndexTable
@@ -128,6 +154,14 @@ export function ProductTable({ products, onReviewFixes, onRetryAudit }: ProductT
           { title: 'Overall Score' },
           { title: 'Action' },
         ]}
+        sortable={[true, true, true, true, true, true, false]}
+        sortColumnIndex={sortColumnIndex}
+        sortDirection={sortDirection}
+        onSort={(headingIndex, direction) => {
+          const columnMap: SortColumn[] = ['title', 'status', 'geo', 'aeo', 'aio', 'overall'];
+          const col = columnMap[headingIndex] || 'overall';
+          if (onSortChange) onSortChange(col, direction);
+        }}
         selectable={false}
       >
         {rowMarkup}
