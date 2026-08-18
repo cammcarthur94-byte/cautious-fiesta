@@ -77,7 +77,10 @@ export default function DashboardPage() {
     fetchCatalog();
   }, [fetchCatalog]);
 
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
+
   const handleSyncCatalog = async () => {
+    setSyncErrorMessage(null);
     if (usageCount >= planLimit) {
       alert(`Monthly AI audit quota reached (${usageCount}/${planLimit}) for your ${planName.toUpperCase()} plan. Please upgrade to sync more products.`);
       return;
@@ -101,13 +104,14 @@ export default function DashboardPage() {
             }
             return;
           }
-        } else if (data.error) {
-          alert(data.error);
         }
+        setSyncErrorMessage(data.error || 'Failed to synchronize catalog with Shopify API.');
+      } else {
+        await fetchCatalog();
       }
-      await fetchCatalog();
     } catch (e: any) {
       console.error('Catalog Sync Error:', e);
+      setSyncErrorMessage(e.message || 'Network error synchronizing store catalog.');
     } finally {
       setIsSyncing(false);
     }
@@ -307,6 +311,20 @@ export default function DashboardPage() {
         ]}
       >
         <Layout>
+          {syncErrorMessage && (
+            <Layout.Section>
+              <Banner
+                title="Catalog Synchronization Warning"
+                tone="critical"
+                onDismiss={() => setSyncErrorMessage(null)}
+              >
+                <Text as="p" variant="bodySm">
+                  {syncErrorMessage}
+                </Text>
+              </Banner>
+            </Layout.Section>
+          )}
+
           {/* Usage Quota Banner */}
           <Layout.Section>
             <Banner

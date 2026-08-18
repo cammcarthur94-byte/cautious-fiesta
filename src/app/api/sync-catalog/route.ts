@@ -67,6 +67,7 @@ function parseShopifyId(gid: string): number {
 }
 
 export async function POST(req: NextRequest) {
+  console.log('[SyncCatalog] === Starting Catalog Synchronization ===');
   try {
     const body = await req.json().catch(() => ({}));
     const { cursor = null, limit = 50 } = body;
@@ -76,13 +77,23 @@ export async function POST(req: NextRequest) {
       shopDomain = 'demo-store.myshopify.com';
     }
 
+    console.log('[SyncCatalog] Step 1: Resolving shop domain & plan quota for:', shopDomain);
+
     // Verify shop plan quota limit before syncing
     const quotaStatus = await checkShopQuota(shopDomain);
+    console.log('[SyncCatalog] Quota status check:', {
+      hasQuota: quotaStatus.hasQuota,
+      usedCount: quotaStatus.usedCount,
+      planLimit: quotaStatus.planLimit,
+      planName: quotaStatus.planName,
+    });
+
     if (!quotaStatus.hasQuota) {
+      console.warn('[SyncCatalog] Quota exceeded for shop:', shopDomain);
       return NextResponse.json(
         {
           success: false,
-          error: `Monthly AI audit quota reached (${quotaStatus.usedCount}/${quotaStatus.planLimit} audits used) for your active ${quotaStatus.planName.toUpperCase()} plan. Please upgrade your subscription to sync and audit more products.`,
+          error: `Monthly AI audit quota reached (${quotaStatus.usedCount}/${quotaStatus.planLimit} audits used) for your active ${quotaStatus.planName.toUpperCase()} plan. Please upgrade your subscription to sync more products.`,
           quotaStatus,
         },
         { status: 429 }
@@ -98,8 +109,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log('[SyncCatalog] Step 2: Access Token Status:', {
+      hasAccessToken: Boolean(accessToken),
+      tokenPrefix: accessToken ? `${accessToken.substring(0, 6)}...` : 'NONE',
+    });
+
     // If access token is invalid or missing, prompt for OAuth re-authentication
     if (!accessToken && shopDomain !== 'demo-store.myshopify.com') {
+      console.error('[SyncCatalog] Error: Missing access token for domain:', shopDomain);
       return NextResponse.json(
         {
           success: false,
@@ -113,17 +130,22 @@ export async function POST(req: NextRequest) {
     const supabase = getServiceSupabase();
 
     // 1. Resolve or create Shop record in Supabase `shops` table
+    console.log('[SyncCatalog] Step 3: Resolving shop UUID in Supabase shops table...');
     let shopId: string | null = null;
-    const { data: existingShop } = await supabase
+    const { data: existingShop, error: shopLookupErr } = await supabase
       .from('shops')
       .select('id')
       .eq('shop_domain', shopDomain)
       .single();
 
+    if (shopLookupErr) {
+      console.log('[SyncCatalog] Existing shop lookup notice:', shopLookupErr.message);
+    }
+
     if (existingShop) {
       shopId = existingShop.id;
     } else {
-      const { data: newShop } = await supabase
+      const { data: newShop, error: shopUpsertErr } = await supabase
         .from('shops')
         .upsert(
           {
@@ -137,25 +159,54 @@ export async function POST(req: NextRequest) {
         .select('id')
         .single();
 
+      if (shopUpsertErr) {
+        console.error('[SyncCatalog] Supabase Shops Upsert Error:', shopUpsertErr.message, shopUpsertErr.details);
+      }
       shopId = newShop?.id || null;
     }
 
+    console.log('[SyncCatalog] Resolved Supabase shop_id UUID:', shopId);
+
     // =========================================================================
-    // REAL SHOPIFY ADMIN GRAPHQL SYNC FLOW
+    // 2. QUERY SHOPIFY ADMIN GRAPHQL API
     // =========================================================================
+    console.log('[SyncCatalog] Step 4: Executing Shopify GraphQL PRODUCTS_GRAPHQL_QUERY...');
     const client = await createShopifyGraphQLClient(shopDomain, accessToken || 'demo_token');
-    const response: any = await client.request(PRODUCTS_GRAPHQL_QUERY, {
-      variables: {
-        first: Math.min(limit, 50),
-        after: cursor || null,
-      },
-    });
+    
+    let response: any;
+    try {
+      response = await client.request(PRODUCTS_GRAPHQL_QUERY, {
+        variables: {
+          first: Math.min(limit, 50),
+          after: cursor || null,
+        },
+      });
+    } catch (gqlErr: any) {
+      console.error('[SyncCatalog] Shopify GraphQL Request Failed:', {
+        message: gqlErr.message,
+        response: gqlErr.response,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Shopify Admin API GraphQL Request Failed: ${gqlErr.message}`,
+        },
+        { status: 502 }
+      );
+    }
 
     const productsData = response.data?.products;
     const edges = productsData?.edges || [];
     const pageInfo = productsData?.pageInfo || { hasNextPage: false, endCursor: null };
 
+    console.log('[SyncCatalog] Shopify GraphQL Response Summary:', {
+      fetchedEdgesCount: edges.length,
+      hasNextPage: pageInfo.hasNextPage,
+      endCursor: pageInfo.endCursor,
+    });
+
     if (edges.length === 0) {
+      console.log('[SyncCatalog] No products returned from Shopify GraphQL for shop:', shopDomain);
       return NextResponse.json({
         success: true,
         syncedCount: 0,
@@ -166,12 +217,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Transform GraphQL response into Supabase product records
+    // =========================================================================
+    // 3. TRANSFORM & UPSERT INTO SUPABASE `products` TABLE
+    // =========================================================================
+    console.log('[SyncCatalog] Step 5: Transforming products and upserting into Supabase...');
     const productRows = edges.map((edge: any) => {
       const node = edge.node;
       const numericId = parseShopifyId(node.id);
 
-      // Extract first media image URL if available
       const mediaImageUrl = node.media?.edges?.[0]?.node?.image?.url;
       const featuredImageUrl = node.featuredImage?.url;
       const imageUrl = mediaImageUrl || featuredImageUrl || null;
@@ -191,7 +244,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Upsert product records into Supabase `products` table
+    // Upsert product records into Supabase `products` table using unique constraint (shop_id, shopify_product_id)
     const { data: upsertedProducts, error: productsError } = await supabase
       .from('products')
       .upsert(productRows, {
@@ -200,11 +253,20 @@ export async function POST(req: NextRequest) {
       .select('id, shopify_product_id');
 
     if (productsError) {
-      console.error('Supabase Product Upsert Error:', productsError);
-      throw new Error(`Failed to upsert products to database: ${productsError.message}`);
+      console.error('[SyncCatalog] Supabase Product Upsert Failure:', {
+        message: productsError.message,
+        details: productsError.details,
+        code: productsError.code,
+      });
+      throw new Error(`Failed to upsert products to database: ${productsError.message} (${productsError.details || 'No details'})`);
     }
 
-    // Upsert initial audits for immediate display
+    console.log('[SyncCatalog] Successfully upserted product rows count:', upsertedProducts?.length || 0);
+
+    // =========================================================================
+    // 4. UPSERT INITIAL AUDITS & INSERT INTO `audit_queue`
+    // =========================================================================
+    console.log('[SyncCatalog] Step 6: Generating initial deterministic audits & updating audit_queue...');
     const auditRows = productRows.map((p: any) => {
       const audit = runDeterministicAudit({
         id: String(p.shopify_product_id),
@@ -230,10 +292,13 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    await supabase.from('product_audits').upsert(auditRows, { onConflict: 'shopify_product_id' });
+    const { error: auditErr } = await supabase.from('product_audits').upsert(auditRows, { onConflict: 'shopify_product_id' });
+    if (auditErr) {
+      console.warn('[SyncCatalog] Product Audits Upsert Notice:', auditErr.message);
+    }
 
     // Insert corresponding rows into `audit_queue` table with status = 'queued'
-    if (upsertedProducts && upsertedProducts.length > 0) {
+    if (upsertedProducts && upsertedProducts.length > 0 && shopId) {
       const queueRows = upsertedProducts.map((p) => ({
         shop_id: shopId,
         product_id: p.id,
@@ -241,9 +306,15 @@ export async function POST(req: NextRequest) {
         created_at: new Date().toISOString(),
       }));
 
-      await supabase.from('audit_queue').upsert(queueRows, { onConflict: 'shop_id,product_id' });
+      const { error: queueError } = await supabase.from('audit_queue').upsert(queueRows, { onConflict: 'shop_id,product_id' });
+      if (queueError) {
+        console.warn('[SyncCatalog] Audit Queue Upsert Notice:', queueError.message, queueError.details);
+      } else {
+        console.log('[SyncCatalog] Queued background items count:', queueRows.length);
+      }
     }
 
+    console.log('[SyncCatalog] === Catalog Synchronization Completed Successfully ===');
     return NextResponse.json({
       success: true,
       syncedCount: edges.length,
@@ -253,7 +324,10 @@ export async function POST(req: NextRequest) {
       quotaStatus,
     });
   } catch (error: any) {
-    console.error('Catalog Sync Error:', error);
+    console.error('[SyncCatalog] FATAL Sync Error:', {
+      message: error.message,
+      stack: error.stack,
+    });
     return NextResponse.json(
       {
         success: false,
