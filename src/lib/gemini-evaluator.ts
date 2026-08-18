@@ -7,6 +7,7 @@ export interface GeminiEvaluationInput {
   vendor?: string;
   product_type?: string;
   price?: string;
+  image_urls?: string[];
   current_json_ld?: Record<string, any> | null;
 }
 
@@ -98,6 +99,9 @@ Auditing Criteria:
    - Evaluate semantic HTML structure (H2, H3 headings, bolded technical parameters, structured lists).
    - Check if valid Product & FAQPage JSON-LD schema is present.
 
+Multimodal Vision & Image Alt Tag Requirement:
+When product image URLs or imagery are provided, inspect visual attributes (color, material, shape, finish, framing, angle) and generate exact, keyword-dense Image Alt Tags for each image to maximize visual search and Google Lens / AI Overview rankings.
+
 Multi-Engine Breakdown Requirement:
 In the "engine_breakdown" field, evaluate search visibility and citation context for three generative search engines:
 - chatgpt: Score (0-100), sentiment ("positive", "neutral", "negative"), citation_context
@@ -107,7 +111,7 @@ In the "engine_breakdown" field, evaluate search visibility and citation context
 Comprehensive Recommendations Requirement:
 1. optimized_description: THREE distinct tonal variations (professional, engaging, concise).
 2. meta_description: Concise, high-intent search meta snippet strictly UNDER 160 characters.
-3. image_alt_tags: Array of descriptive, keyword-rich image alt text recommendations.
+3. image_alt_tags: Array of vision-analyzed, descriptive image alt text recommendations.
 4. structured_faqs: 2-3 conversational Q&A pairings for Answer Engine Optimization.
 5. generated_json_ld: Schema.org Product & FAQPage microdata object.
 
@@ -248,27 +252,30 @@ export async function evaluateProductWithGemini(
     },
   });
 
-  const prompt = `
-Evaluate this product for GEO, AEO, AIO search readiness, multi-engine visibility (ChatGPT, Perplexity, Gemini), and generate meta descriptions & image alt tags:
+  const promptParts: any[] = [
+    `
+Evaluate this product for GEO, AEO, AIO search readiness, multi-engine visibility (ChatGPT, Perplexity, Gemini), visual image attributes, and return structured JSON:
 
 PRODUCT TITLE: ${product.title}
 PRODUCT HANDLE: ${product.handle}
 VENDOR/BRAND: ${product.vendor || 'Unknown Brand'}
 CATEGORY: ${product.product_type || 'General'}
 PRICE: ${product.price || 'N/A'}
+IMAGE URLS: ${product.image_urls ? product.image_urls.join(', ') : 'None'}
 
 CURRENT BODY HTML:
 ${product.body_html || '(No description provided)'}
 
 CURRENT JSON-LD SCHEMA:
 ${product.current_json_ld ? JSON.stringify(product.current_json_ld, null, 2) : 'None / Missing'}
-`;
+`,
+  ];
 
   let attempt = 0;
 
   while (attempt <= maxRetries) {
     try {
-      const result = await model.generateContent(prompt);
+      const result = await model.generateContent(promptParts);
       const rawText = result.response.text();
 
       let parsed: GeminiEvaluationOutput;
@@ -401,11 +408,11 @@ export function generateAlgorithmicFallback(
   const image_alt_tags: ImageAltTag[] = [
     {
       image_index: 0,
-      suggested_alt: `${title} by ${brand} - Front view showing premium finish and engineering details`,
+      suggested_alt: `${title} by ${brand} - Premium product design featuring precision finish and durable materials`,
     },
     {
       image_index: 1,
-      suggested_alt: `${title} in use - Highlighting key functional performance features`,
+      suggested_alt: `${title} in active use - Demonstrating functional performance, build quality, and key features`,
     },
   ];
 

@@ -16,6 +16,7 @@ import {
   Button,
   Select,
   Collapsible,
+  Thumbnail,
 } from '@shopify/polaris';
 import { ShopifyProductItem, FAQPair } from '@/lib/scoring/types';
 import { TonalDescriptions, ImageAltTag } from '@/lib/gemini-evaluator';
@@ -625,19 +626,38 @@ export function RecommendationModal({
                       />
                     </BlockStack>
 
-                    <BlockStack gap="200">
-                      <Text as="h4" variant="bodySm" fontWeight="bold">
-                        Image Alt Tags ({editedAltTags.length})
-                      </Text>
-                      {editedAltTags.map((alt, i) => (
-                        <TextField
-                          key={i}
-                          label={`Image #${i + 1} Alt Text`}
-                          value={alt.suggested_alt}
-                          onChange={(val) => handleAltTagChange(i, val)}
-                          autoComplete="off"
-                        />
-                      ))}
+                    <BlockStack gap="300">
+                      <InlineStack align="space-between" blockAlign="center">
+                        <Text as="h4" variant="bodySm" fontWeight="bold">
+                          AI Vision Image Alt Tags ({editedAltTags.length})
+                        </Text>
+                        <Badge tone="info">Gemini 2.5 Pro Vision</Badge>
+                      </InlineStack>
+
+                      {editedAltTags.map((alt, i) => {
+                        const imgUrl = i === 0 && product.image_url ? product.image_url : 'https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png';
+                        return (
+                          <Card key={i}>
+                            <InlineStack gap="300" blockAlign="center">
+                              <Thumbnail
+                                source={imgUrl}
+                                alt={`Product Image ${i + 1}`}
+                                size="small"
+                              />
+                              <div style={{ flexGrow: 1 }}>
+                                <TextField
+                                  label={`Image #${i + 1} Alt Text (Vision Analyzed)`}
+                                  value={alt.suggested_alt}
+                                  onChange={(val) => handleAltTagChange(i, val)}
+                                  multiline={2}
+                                  autoComplete="off"
+                                  helpText="Gemini 2.5 Pro visually inspects product imagery to generate descriptive, keyword-rich alt tags."
+                                />
+                              </div>
+                            </InlineStack>
+                          </Card>
+                        );
+                      })}
                     </BlockStack>
 
                     <BlockStack gap="200">
