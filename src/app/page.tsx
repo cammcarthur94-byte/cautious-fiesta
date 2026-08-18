@@ -90,8 +90,19 @@ export default function DashboardPage() {
         body: JSON.stringify({ shopDomain }),
       });
       const data = await res.json();
-      if (!data.success && data.error) {
-        alert(data.error);
+      if (!data.success) {
+        if (data.reauthUrl) {
+          if (confirm(`Shopify OAuth permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
+            if (window.top) {
+              window.top.location.href = data.reauthUrl;
+            } else {
+              window.location.href = data.reauthUrl;
+            }
+            return;
+          }
+        } else if (data.error) {
+          alert(data.error);
+        }
       }
       await fetchCatalog();
     } catch (e: any) {

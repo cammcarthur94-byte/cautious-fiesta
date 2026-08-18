@@ -68,18 +68,16 @@ export async function POST(req: NextRequest) {
 
     // Resolve offline access token from session store if not passed in request body
     let accessToken = body.accessToken;
-    if (!accessToken && shopDomain) {
+    if (!accessToken && shopDomain && shopDomain !== 'demo-store.myshopify.com') {
       const session = await getSessionByShop(shopDomain);
       if (session) {
         accessToken = session.accessToken;
       }
     }
 
-    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !accessToken;
+    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && shopDomain === 'demo-store.myshopify.com';
 
-    // =========================================================================
-    // DEMO MODE / FALLBACK SIMULATION
-    // =========================================================================
+    // DEMO MODE (Only when explicitly running demo store)
     if (isDemo) {
       return NextResponse.json({
         success: true,
@@ -89,6 +87,18 @@ export async function POST(req: NextRequest) {
         shopId: 'demo-shop-uuid',
         message: 'Catalog sync simulated successfully in Demo Mode.',
       });
+    }
+
+    // Check if access token is missing for real store
+    if (!accessToken && shopDomain !== 'demo-store.myshopify.com') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `No valid access token found for store "${shopDomain}". Please authorize app permissions via Shopify OAuth.`,
+          reauthUrl: `/api/auth?shop=${encodeURIComponent(shopDomain)}`,
+        },
+        { status: 401 }
+      );
     }
 
     // =========================================================================
@@ -112,7 +122,7 @@ export async function POST(req: NextRequest) {
         .upsert(
           {
             shop_domain: shopDomain,
-            access_token: accessToken,
+            access_token: accessToken || 'demo_token',
             is_installed: true,
             updated_at: new Date().toISOString(),
           },
@@ -128,7 +138,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Fetch page of products from Shopify GraphQL API
-    const client = await createShopifyGraphQLClient(shopDomain, accessToken);
+    const client = await createShopifyGraphQLClient(shopDomain, accessToken!);
     const response: any = await client.request(PRODUCTS_GRAPHQL_QUERY, {
       variables: {
         first: Math.min(limit, 100),
@@ -157,11 +167,15 @@ export async function POST(req: NextRequest) {
 
       return {
         shop_id: shopId,
+        shop_domain: shopDomain,
         shopify_product_id: numericId,
         title: node.title,
         handle: node.handle,
         body_html: node.descriptionHtml || '',
+        vendor: node.vendor || '',
+        product_type: node.productType || '',
         status: (node.status || 'active').toLowerCase(),
+        image_url: node.featuredImage?.url || null,
         synced_at: new Date().toISOString(),
       };
     });
