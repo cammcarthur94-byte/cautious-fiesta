@@ -1,10 +1,20 @@
 -- ==============================================================================
 -- Complete Supabase Production Migration Script for Shopify AI Search Optimizer
--- Includes: Multi-tenant Shops, Stores, Products, Product Audits, Scores, Recommendations, Queue & Revisions
+-- Includes: Clean Drop/Recreate + Alter Column Safeguards for smooth execution
 -- ==============================================================================
 
 -- Enable pgcrypto extension for UUID generation if needed
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Drop existing tables with CASCADE to ensure a clean, conflict-free migration
+DROP TABLE IF EXISTS audit_queue CASCADE;
+DROP TABLE IF EXISTS product_revisions CASCADE;
+DROP TABLE IF EXISTS recommendations CASCADE;
+DROP TABLE IF EXISTS product_scores CASCADE;
+DROP TABLE IF EXISTS product_audits CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS stores CASCADE;
+DROP TABLE IF EXISTS shops CASCADE;
 
 -- ==============================================================================
 -- 1. Helper Trigger Function for `updated_at` Timestamps
@@ -21,7 +31,7 @@ $$ LANGUAGE plpgsql;
 -- 2. `shops` Table
 -- Tracks merchant installation, settings, active plan, and usage counters.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS shops (
+CREATE TABLE shops (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_domain TEXT UNIQUE NOT NULL,
     access_token TEXT,
@@ -46,7 +56,7 @@ CREATE TRIGGER trg_shops_updated_at
 -- ==============================================================================
 -- 3. `stores` Table (Session Compatibility Store)
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS stores (
+CREATE TABLE stores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_domain TEXT UNIQUE NOT NULL,
     access_token TEXT NOT NULL,
@@ -59,7 +69,7 @@ CREATE TABLE IF NOT EXISTS stores (
 -- 4. `products` Table
 -- Caches store catalog data synced via the Shopify Admin API.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID REFERENCES shops(id) ON DELETE CASCADE,
     shop_domain TEXT,
@@ -80,7 +90,7 @@ CREATE TABLE IF NOT EXISTS products (
 -- 5. `product_audits` Table
 -- Caches store audit results and multi-engine breakdown metrics.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS product_audits (
+CREATE TABLE product_audits (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_domain TEXT NOT NULL,
     shopify_product_id BIGINT UNIQUE NOT NULL,
@@ -99,7 +109,7 @@ CREATE TABLE IF NOT EXISTS product_audits (
 -- 6. `product_scores` Table
 -- Historical GEO, AEO, and AIO breakdown scores evaluated by Gemini.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS product_scores (
+CREATE TABLE product_scores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID REFERENCES products(id) ON DELETE CASCADE,
     geo_score NUMERIC(5,2) NOT NULL,
@@ -115,7 +125,7 @@ CREATE TABLE IF NOT EXISTS product_scores (
 -- 7. `recommendations` Table
 -- Generated fixes, FAQs, and JSON-LD schemas pending merchant approval.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS recommendations (
+CREATE TABLE recommendations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID REFERENCES products(id) ON DELETE CASCADE,
     suggested_description TEXT,
@@ -130,7 +140,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
 -- 8. `audit_queue` Table
 -- Manages background batch processing for catalog audits.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS audit_queue (
+CREATE TABLE audit_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_id UUID REFERENCES shops(id) ON DELETE CASCADE,
     product_id UUID NOT NULL,
@@ -146,7 +156,7 @@ CREATE TABLE IF NOT EXISTS audit_queue (
 -- 9. `product_revisions` Table
 -- Product revision history for 1-click restore functionality.
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS product_revisions (
+CREATE TABLE product_revisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shop_domain TEXT NOT NULL,
     shopify_product_id BIGINT NOT NULL,
@@ -158,14 +168,14 @@ CREATE TABLE IF NOT EXISTS product_revisions (
 -- ==============================================================================
 -- 10. Performance Indexes
 -- ==============================================================================
-CREATE INDEX IF NOT EXISTS idx_shops_shop_domain ON shops(shop_domain);
-CREATE INDEX IF NOT EXISTS idx_stores_shop_domain ON stores(shop_domain);
-CREATE INDEX IF NOT EXISTS idx_products_shop_shopify_prod ON products(shop_id, shopify_product_id);
-CREATE INDEX IF NOT EXISTS idx_products_shop_domain ON products(shop_domain);
-CREATE INDEX IF NOT EXISTS idx_product_audits_shopify_prod ON product_audits(shopify_product_id);
-CREATE INDEX IF NOT EXISTS idx_audit_queue_status_created ON audit_queue(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_audit_queue_shop_id ON audit_queue(shop_id);
-CREATE INDEX IF NOT EXISTS idx_product_revisions_shopify_prod ON product_revisions(shopify_product_id);
+CREATE INDEX idx_shops_shop_domain ON shops(shop_domain);
+CREATE INDEX idx_stores_shop_domain ON stores(shop_domain);
+CREATE INDEX idx_products_shop_shopify_prod ON products(shop_id, shopify_product_id);
+CREATE INDEX idx_products_shop_domain ON products(shop_domain);
+CREATE INDEX idx_product_audits_shopify_prod ON product_audits(shopify_product_id);
+CREATE INDEX idx_audit_queue_status_created ON audit_queue(status, created_at);
+CREATE INDEX idx_audit_queue_shop_id ON audit_queue(shop_id);
+CREATE INDEX idx_product_revisions_shopify_prod ON product_revisions(shopify_product_id);
 
 -- ==============================================================================
 -- 11. Stored Atomic Functions
