@@ -31,6 +31,123 @@ interface RecommendationModalProps {
 
 export type ToneKey = 'professional' | 'engaging' | 'concise';
 
+/**
+ * Pixel-Perfect Google Search Result Preview Component
+ */
+function GoogleSearchPreview({
+  title,
+  vendor,
+  handle,
+  shopDomain,
+  metaDescription,
+  price,
+}: {
+  title: string;
+  vendor: string;
+  handle: string;
+  shopDomain: string;
+  metaDescription: string;
+  price?: string;
+}) {
+  const displayDomain = shopDomain.replace(/^https?:\/\//, '');
+  const charCount = metaDescription.length;
+  const isOverLimit = charCount > 160;
+
+  return (
+    <Card padding="300">
+      <BlockStack gap="200">
+        <InlineStack align="space-between" blockAlign="center">
+          <Text as="span" variant="bodyXs" fontWeight="bold">
+            Google Search Result Preview
+          </Text>
+          <Badge tone={isOverLimit ? 'warning' : 'success'}>
+            {`${charCount} / 160 characters`}
+          </Badge>
+        </InlineStack>
+
+        <div
+          style={{
+            fontFamily: 'arial, sans-serif',
+            backgroundColor: '#ffffff',
+            border: '1px solid #dadce0',
+            borderRadius: '8px',
+            padding: '14px 16px',
+            boxShadow: '0 1px 3px rgba(60,64,67,0.08)',
+          }}
+        >
+          {/* Favicon & Domain */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <div
+              style={{
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                backgroundColor: '#4285f4',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                color: '#ffffff',
+              }}
+            >
+              G
+            </div>
+            <div style={{ fontSize: '12px', color: '#202124', lineHeight: '1.3' }}>
+              <span style={{ fontWeight: 'normal', color: '#202124' }}>{displayDomain}</span>
+              <span style={{ color: '#4d5156' }}> › products › {handle}</span>
+            </div>
+          </div>
+
+          {/* Search Result Title */}
+          <div
+            style={{
+              color: '#1a0dab',
+              fontSize: '18px',
+              fontWeight: '400',
+              lineHeight: '1.3',
+              marginBottom: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            {title} - {vendor || 'Store Brand'}
+          </div>
+
+          {/* Microdata Rich Snippet */}
+          <div
+            style={{
+              fontSize: '12px',
+              color: '#4d5156',
+              marginBottom: '4px',
+              display: 'flex',
+              gap: '6px',
+              alignItems: 'center',
+            }}
+          >
+            <span style={{ color: '#e37400', fontWeight: 'bold' }}>Rating: 4.9 ★★★★★</span>
+            <span>·</span>
+            <span>${price || '49.99'}</span>
+            <span>·</span>
+            <span style={{ color: '#188038', fontWeight: '500' }}>In stock</span>
+          </div>
+
+          {/* Meta Description Snippet */}
+          <div
+            style={{
+              color: '#4d5156',
+              fontSize: '14px',
+              lineHeight: '1.58',
+              wordBreak: 'break-word',
+            }}
+          >
+            {metaDescription || 'Add an optimized meta description snippet to preview your Google search result listing.'}
+          </div>
+        </div>
+      </BlockStack>
+    </Card>
+  );
+}
+
 export function RecommendationModal({
   product,
   isOpen,
@@ -432,12 +549,15 @@ export function RecommendationModal({
                       />
                     </Box>
 
-                    <Text as="h4" variant="bodySm" fontWeight="bold">
-                      Meta Description (Search Snippet)
-                    </Text>
-                    <Box padding="200" background="bg-surface-secondary" borderRadius="200">
-                      <Text as="p" variant="bodySm">{editedMetaDesc}</Text>
-                    </Box>
+                    {/* Google Search Result Preview Component */}
+                    <GoogleSearchPreview
+                      title={product.title}
+                      vendor={product.vendor}
+                      handle={product.handle}
+                      shopDomain={shopDomain}
+                      metaDescription={editedMetaDesc}
+                      price={product.price}
+                    />
 
                     <Text as="h4" variant="bodySm" fontWeight="bold">
                       Customer FAQs ({editedFaqs.length})
@@ -484,14 +604,26 @@ export function RecommendationModal({
                       helpText="Interactive: Click inside to edit the AI-generated text directly."
                     />
 
-                    <TextField
-                      label="SEO Meta Description (Snippet < 160 chars)"
-                      value={editedMetaDesc}
-                      onChange={setEditedMetaDesc}
-                      multiline={2}
-                      autoComplete="off"
-                      helpText="Optimized search engine snippet displayed on Google."
-                    />
+                    <BlockStack gap="200">
+                      <TextField
+                        label="SEO Meta Description (Snippet < 160 chars)"
+                        value={editedMetaDesc}
+                        onChange={setEditedMetaDesc}
+                        multiline={2}
+                        autoComplete="off"
+                        helpText="Optimized search engine snippet displayed on Google."
+                      />
+
+                      {/* Real-time Google Search Snippet Preview */}
+                      <GoogleSearchPreview
+                        title={product.title}
+                        vendor={product.vendor}
+                        handle={product.handle}
+                        shopDomain={shopDomain}
+                        metaDescription={editedMetaDesc}
+                        price={product.price}
+                      />
+                    </BlockStack>
 
                     <BlockStack gap="200">
                       <Text as="h4" variant="bodySm" fontWeight="bold">
