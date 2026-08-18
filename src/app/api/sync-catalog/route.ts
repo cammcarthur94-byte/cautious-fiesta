@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createShopifyGraphQLClient } from '@/lib/shopify/client';
 import { getServiceSupabase } from '@/lib/supabase/client';
 import { getSessionByShop } from '@/lib/shopify/session';
 import { checkShopQuota } from '@/lib/billing/plan-limits';
 import { runDeterministicAudit } from '@/lib/scoring/deterministic';
 
 /**
- * Enhanced GraphQL Query for fetching catalog products, variants, and media.
+ * Shopify Admin API GraphQL Query for fetching catalog products, variants, and media.
  */
 const PRODUCTS_GRAPHQL_QUERY = `
-  query SyncCatalogProducts($first: Int!, $after: String) {
+  query getProducts($first: Int!, $after: String) {
     products(first: $first, after: $after) {
       edges {
         cursor
@@ -67,7 +66,7 @@ function parseShopifyId(gid: string): number {
 }
 
 export async function POST(req: NextRequest) {
-  console.log('[SyncCatalog] === Starting Catalog Synchronization ===');
+  console.log('[SyncCatalog] === Executing Shopify Catalog Import ===');
   try {
     const body = await req.json().catch(() => ({}));
     const { cursor = null, limit = 50 } = body;
@@ -77,19 +76,14 @@ export async function POST(req: NextRequest) {
       shopDomain = 'demo-store.myshopify.com';
     }
 
-    console.log('[SyncCatalog] Step 1: Resolving shop domain & plan quota for:', shopDomain);
+    console.log('[SyncCatalog] Target Shop Domain:', shopDomain);
 
-    // Verify shop plan quota limit before syncing
+    // 1. Check Plan Quota
     const quotaStatus = await checkShopQuota(shopDomain);
-    console.log('[SyncCatalog] Quota status check:', {
-      hasQuota: quotaStatus.hasQuota,
-      usedCount: quotaStatus.usedCount,
-      planLimit: quotaStatus.planLimit,
-      planName: quotaStatus.planName,
-    });
+    console.log('[SyncCatalog] Plan Quota Status:', quotaStatus);
 
     if (!quotaStatus.hasQuota) {
-      console.warn('[SyncCatalog] Quota exceeded for shop:', shopDomain);
+      console.warn('[SyncCatalog] Quota Limit Exceeded for:', shopDomain);
       return NextResponse.json(
         {
           success: false,
@@ -100,7 +94,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Retrieve offline access token from Supabase session store
+    // 2. Resolve Access Token from Supabase session store
     let accessToken = body.accessToken || process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_ADMIN_TOKEN;
     if (!accessToken && shopDomain && shopDomain !== 'demo-store.myshopify.com') {
       const session = await getSessionByShop(shopDomain);
@@ -109,14 +103,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    console.log('[SyncCatalog] Step 2: Access Token Status:', {
-      hasAccessToken: Boolean(accessToken),
-      tokenPrefix: accessToken ? `${accessToken.substring(0, 6)}...` : 'NONE',
-    });
+    console.log('[SyncCatalog] Token Resolution - AccessToken Present:', Boolean(accessToken));
 
-    // If access token is invalid or missing, prompt for OAuth re-authentication
     if (!accessToken && shopDomain !== 'demo-store.myshopify.com') {
-      console.error('[SyncCatalog] Error: Missing access token for domain:', shopDomain);
+      console.error('[SyncCatalog] Authentication Error: No access token found for store:', shopDomain);
       return NextResponse.json(
         {
           success: false,
@@ -127,11 +117,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 3. Resolve Shop UUID from Supabase `shops` table
     const supabase = getServiceSupabase();
-
-    // 1. Resolve or create Shop record in Supabase `shops` table
-    console.log('[SyncCatalog] Step 3: Resolving shop UUID in Supabase shops table...');
     let shopId: string | null = null;
+
     const { data: existingShop, error: shopLookupErr } = await supabase
       .from('shops')
       .select('id')
@@ -139,7 +128,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (shopLookupErr) {
-      console.log('[SyncCatalog] Existing shop lookup notice:', shopLookupErr.message);
+      console.log('[SyncCatalog] Shop UUID lookup info:', shopLookupErr.message);
     }
 
     if (existingShop) {
@@ -160,53 +149,90 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (shopUpsertErr) {
-        console.error('[SyncCatalog] Supabase Shops Upsert Error:', shopUpsertErr.message, shopUpsertErr.details);
+        console.error('[SyncCatalog] Shops table upsert error:', shopUpsertErr.message, shopUpsertErr.details);
       }
       shopId = newShop?.id || null;
     }
 
-    console.log('[SyncCatalog] Resolved Supabase shop_id UUID:', shopId);
+    console.log('[SyncCatalog] Resolved Shop UUID:', shopId);
 
     // =========================================================================
-    // 2. QUERY SHOPIFY ADMIN GRAPHQL API
+    // 4. FETCH PRODUCTS VIA SHOPIFY ADMIN GRAPHQL API (2026-04)
     // =========================================================================
-    console.log('[SyncCatalog] Step 4: Executing Shopify GraphQL PRODUCTS_GRAPHQL_QUERY...');
-    const client = await createShopifyGraphQLClient(shopDomain, accessToken || 'demo_token');
-    
-    let response: any;
-    try {
-      response = await client.request(PRODUCTS_GRAPHQL_QUERY, {
+    const shopifyApiUrl = `https://${shopDomain}/admin/api/2026-04/graphql.json`;
+    console.log('[SyncCatalog] Issuing GraphQL POST to:', shopifyApiUrl);
+
+    const gqlResponse = await fetch(shopifyApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken || 'demo_token',
+      },
+      body: JSON.stringify({
+        query: PRODUCTS_GRAPHQL_QUERY,
         variables: {
           first: Math.min(limit, 50),
           after: cursor || null,
         },
-      });
-    } catch (gqlErr: any) {
-      console.error('[SyncCatalog] Shopify GraphQL Request Failed:', {
-        message: gqlErr.message,
-        response: gqlErr.response,
-      });
+      }),
+    });
+
+    console.log('[SyncCatalog] Shopify Admin API HTTP Status Code:', gqlResponse.status);
+
+    if (!gqlResponse.ok) {
+      const rawErrorText = await gqlResponse.text();
+      console.error('[SyncCatalog] Shopify Admin API Error Response Body:', rawErrorText);
+
+      if (gqlResponse.status === 401) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Shopify OAuth Authentication Failed (HTTP 401). Access token is invalid or revoked. Please re-authorize app permissions.`,
+            reauthUrl: `/api/auth?shop=${encodeURIComponent(shopDomain)}`,
+          },
+          { status: 401 }
+        );
+      }
+
+      if (gqlResponse.status === 429) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Shopify GraphQL API Rate Limit Exceeded (HTTP 429). Please wait a few seconds before retrying.`,
+          },
+          { status: 429 }
+        );
+      }
+
       return NextResponse.json(
         {
           success: false,
-          error: `Shopify Admin API GraphQL Request Failed: ${gqlErr.message}`,
+          error: `Shopify Admin API returned HTTP ${gqlResponse.status}: ${rawErrorText}`,
         },
-        { status: 502 }
+        { status: gqlResponse.status }
       );
     }
 
-    const productsData = response.data?.products;
+    const gqlResult = await gqlResponse.json();
+
+    if (gqlResult.errors && gqlResult.errors.length > 0) {
+      console.error('[SyncCatalog] Shopify GraphQL User Errors:', gqlResult.errors);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Shopify GraphQL Error: ${gqlResult.errors.map((e: any) => e.message).join('; ')}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const productsData = gqlResult.data?.products;
     const edges = productsData?.edges || [];
     const pageInfo = productsData?.pageInfo || { hasNextPage: false, endCursor: null };
 
-    console.log('[SyncCatalog] Shopify GraphQL Response Summary:', {
-      fetchedEdgesCount: edges.length,
-      hasNextPage: pageInfo.hasNextPage,
-      endCursor: pageInfo.endCursor,
-    });
+    console.log(`[SyncCatalog] Successfully fetched ${edges.length} products from Shopify.`);
 
     if (edges.length === 0) {
-      console.log('[SyncCatalog] No products returned from Shopify GraphQL for shop:', shopDomain);
       return NextResponse.json({
         success: true,
         syncedCount: 0,
@@ -218,9 +244,8 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // 3. TRANSFORM & UPSERT INTO SUPABASE `products` TABLE
+    // 5. UPSERT PRODUCTS INTO SUPABASE
     // =========================================================================
-    console.log('[SyncCatalog] Step 5: Transforming products and upserting into Supabase...');
     const productRows = edges.map((edge: any) => {
       const node = edge.node;
       const numericId = parseShopifyId(node.id);
@@ -244,7 +269,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Upsert product records into Supabase `products` table using unique constraint (shop_id, shopify_product_id)
+    console.log('[SyncCatalog] Upserting products to Supabase using unique constraint (shop_id, shopify_product_id)...');
     const { data: upsertedProducts, error: productsError } = await supabase
       .from('products')
       .upsert(productRows, {
@@ -253,20 +278,19 @@ export async function POST(req: NextRequest) {
       .select('id, shopify_product_id');
 
     if (productsError) {
-      console.error('[SyncCatalog] Supabase Product Upsert Failure:', {
+      console.error('[SyncCatalog] Supabase Products Upsert Error:', {
         message: productsError.message,
         details: productsError.details,
         code: productsError.code,
       });
-      throw new Error(`Failed to upsert products to database: ${productsError.message} (${productsError.details || 'No details'})`);
+      throw new Error(`Failed to upsert products to Supabase database: ${productsError.message} (${productsError.details || 'No details'})`);
     }
 
-    console.log('[SyncCatalog] Successfully upserted product rows count:', upsertedProducts?.length || 0);
+    console.log('[SyncCatalog] Upserted products count in Supabase:', upsertedProducts?.length || 0);
 
     // =========================================================================
-    // 4. UPSERT INITIAL AUDITS & INSERT INTO `audit_queue`
+    // 6. UPSERT INITIAL AUDITS & INSERT INTO AUDIT QUEUE
     // =========================================================================
-    console.log('[SyncCatalog] Step 6: Generating initial deterministic audits & updating audit_queue...');
     const auditRows = productRows.map((p: any) => {
       const audit = runDeterministicAudit({
         id: String(p.shopify_product_id),
@@ -297,7 +321,6 @@ export async function POST(req: NextRequest) {
       console.warn('[SyncCatalog] Product Audits Upsert Notice:', auditErr.message);
     }
 
-    // Insert corresponding rows into `audit_queue` table with status = 'queued'
     if (upsertedProducts && upsertedProducts.length > 0 && shopId) {
       const queueRows = upsertedProducts.map((p) => ({
         shop_id: shopId,
@@ -310,11 +333,11 @@ export async function POST(req: NextRequest) {
       if (queueError) {
         console.warn('[SyncCatalog] Audit Queue Upsert Notice:', queueError.message, queueError.details);
       } else {
-        console.log('[SyncCatalog] Queued background items count:', queueRows.length);
+        console.log(`[SyncCatalog] Queued ${queueRows.length} items for background AI evaluation.`);
       }
     }
 
-    console.log('[SyncCatalog] === Catalog Synchronization Completed Successfully ===');
+    console.log('[SyncCatalog] === Catalog Sync Completed Successfully ===');
     return NextResponse.json({
       success: true,
       syncedCount: edges.length,
@@ -324,7 +347,7 @@ export async function POST(req: NextRequest) {
       quotaStatus,
     });
   } catch (error: any) {
-    console.error('[SyncCatalog] FATAL Sync Error:', {
+    console.error('[SyncCatalog] Fatal Error during Catalog Sync:', {
       message: error.message,
       stack: error.stack,
     });
