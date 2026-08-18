@@ -27,10 +27,8 @@ export async function GET(req: NextRequest) {
     const protocol = req.headers.get('x-forwarded-proto') || (hostHeader.includes('localhost') ? 'http' : 'https');
 
     let appUrl = process.env.SHOPIFY_APP_URL;
-    if (forwardedHost) {
-      appUrl = `https://${forwardedHost}`;
-    } else if (!appUrl) {
-      appUrl = `${protocol}://${hostHeader}`;
+    if (!appUrl) {
+      appUrl = forwardedHost ? `https://${forwardedHost}` : `${protocol}://${hostHeader}`;
     }
     appUrl = appUrl.replace(/\/$/, '');
 
