@@ -68,12 +68,24 @@ export async function POST(req: NextRequest) {
     }
 
     // Resolve offline access token from session store if not passed in request body
-    let accessToken = body.accessToken;
+    let accessToken = body.accessToken || process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_ADMIN_TOKEN;
     if (!accessToken && shopDomain && shopDomain !== 'demo-store.myshopify.com') {
       const session = await getSessionByShop(shopDomain);
       if (session) {
         accessToken = session.accessToken;
       }
+    }
+
+    // If access token is missing for a real store, prompt for OAuth authorization
+    if (!accessToken && shopDomain !== 'demo-store.myshopify.com') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Shopify Admin API access token not found for store "${shopDomain}". Please authorize app permissions via Shopify OAuth.`,
+          reauthUrl: `/api/auth?shop=${encodeURIComponent(shopDomain)}`,
+        },
+        { status: 401 }
+      );
     }
 
     const supabase = getServiceSupabase();
@@ -94,7 +106,7 @@ export async function POST(req: NextRequest) {
         .upsert(
           {
             shop_domain: shopDomain,
-            access_token: accessToken || 'dev_token',
+            access_token: accessToken || 'demo_token',
             is_installed: true,
             updated_at: new Date().toISOString(),
           },
@@ -106,69 +118,10 @@ export async function POST(req: NextRequest) {
       shopId = newShop?.id || null;
     }
 
-    // If access token is missing, populate developer store catalog in Supabase cleanly
-    if (!accessToken && shopDomain !== 'demo-store.myshopify.com') {
-      const devStoreProducts = [
-        { shop_id: shopId, shop_domain: shopDomain, shopify_product_id: 101, title: 'Premium Ergonomic Office Chair', handle: 'ergonomic-office-chair', body_html: '<p>Ergonomic office chair designed for all-day lumbar support and peak workplace productivity.</p>', vendor: 'ErgoTech', product_type: 'Furniture', status: 'active', image_url: 'https://images.unsplash.com/photo-1580481072645-022f9a6d120a?w=400', synced_at: new Date().toISOString() },
-        { shop_id: shopId, shop_domain: shopDomain, shopify_product_id: 102, title: 'Noise-Canceling Wireless Headphones', handle: 'noise-canceling-headphones', body_html: '<p>High-fidelity bluetooth headphones with active noise cancellation and 30-hour battery life.</p>', vendor: 'AudioPro', product_type: 'Electronics', status: 'active', image_url: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400', synced_at: new Date().toISOString() },
-        { shop_id: shopId, shop_domain: shopDomain, shopify_product_id: 103, title: 'Insulated Stainless Steel Water Bottle', handle: 'stainless-water-bottle', body_html: '<p>Double-wall vacuum insulated water bottle keeping drinks ice cold for 24 hours.</p>', vendor: 'HydroGear', product_type: 'Accessories', status: 'active', image_url: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=400', synced_at: new Date().toISOString() },
-        { shop_id: shopId, shop_domain: shopDomain, shopify_product_id: 104, title: 'Minimalist Mechanical Keyboard', handle: 'mechanical-keyboard', body_html: '<p>Compact mechanical keyboard with hot-swappable tactile switches and RGB backlighting.</p>', vendor: 'KeyCraft', product_type: 'Electronics', status: 'active', image_url: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=400', synced_at: new Date().toISOString() },
-      ];
-
-      await supabase.from('products').upsert(devStoreProducts, { onConflict: 'shop_id,shopify_product_id' });
-
-      // Upsert initial audits
-      const devAudits = devStoreProducts.map((p) => {
-        const audit = runDeterministicAudit({
-          id: String(p.shopify_product_id),
-          title: p.title,
-          handle: p.handle,
-          body_html: p.body_html,
-          vendor: p.vendor,
-          product_type: p.product_type,
-          status: p.status as any,
-          image_url: p.image_url,
-        });
-
-        return {
-          shop_domain: shopDomain,
-          shopify_product_id: p.shopify_product_id,
-          overall_score: audit.overallScore,
-          geo_score: audit.geoBreakdown.score,
-          aeo_score: audit.aeoBreakdown.score,
-          aio_score: audit.aioBreakdown.score,
-          issues: audit.issues,
-          recommendations: audit.recommendations,
-          audited_at: new Date().toISOString(),
-        };
-      });
-
-      await supabase.from('product_audits').upsert(devAudits, { onConflict: 'shopify_product_id' });
-
-      // Queue items for background evaluation
-      const queueRows = devStoreProducts.map((p) => ({
-        shop_id: shopId,
-        product_id: p.shopify_product_id,
-        status: 'queued',
-        created_at: new Date().toISOString(),
-      }));
-
-      await supabase.from('audit_queue').upsert(queueRows, { onConflict: 'shop_id,product_id' });
-
-      return NextResponse.json({
-        success: true,
-        syncedCount: devStoreProducts.length,
-        hasNextPage: false,
-        endCursor: null,
-        shopId,
-        quotaStatus,
-      });
-    }
-
     // =========================================================================
     // REAL SHOPIFY GRAPHQL SYNC FLOW
     // =========================================================================
-    const client = await createShopifyGraphQLClient(shopDomain, accessToken!);
+    const client = await createShopifyGraphQLClient(shopDomain, accessToken || 'demo_token');
     const response: any = await client.request(PRODUCTS_GRAPHQL_QUERY, {
       variables: {
         first: Math.min(limit, 100),
@@ -187,6 +140,7 @@ export async function POST(req: NextRequest) {
         hasNextPage: false,
         endCursor: null,
         shopId,
+        quotaStatus,
       });
     }
 

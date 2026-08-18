@@ -18,14 +18,12 @@ export async function GET(req: NextRequest) {
 
     let products: ShopifyProductItem[] = [];
 
-    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      // Live mode: fetch from Supabase with joined audit scores
-      products = await fetchLiveProducts(shopDomain, page, limit);
-    }
-
-    // If no products found in Supabase for shopDomain, fallback to mock products for initial preview
-    if (!products || products.length === 0) {
+    if (shopDomain === 'demo-store.myshopify.com') {
+      // Return demo products strictly for demo store
       products = getMockProductsWithAudits();
+    } else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      // Live mode for actual store: query database
+      products = await fetchLiveProducts(shopDomain, page, limit);
     }
 
     // Apply client-side filters
@@ -96,7 +94,7 @@ async function fetchLiveProducts(
 
     if (shopRecord?.id) {
       query = query.or(`shop_id.eq.${shopRecord.id},shop_domain.eq.${shopDomain}`);
-    } else if (shopDomain && shopDomain !== 'demo-store.myshopify.com') {
+    } else if (shopDomain) {
       query = query.eq('shop_domain', shopDomain);
     }
 
