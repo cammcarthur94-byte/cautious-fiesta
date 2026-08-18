@@ -22,7 +22,15 @@ export async function GET(req: NextRequest) {
     }
 
     const apiKey = process.env.SHOPIFY_API_KEY;
-    const appUrl = process.env.SHOPIFY_APP_URL || `https://${req.headers.get('host')}`;
+    const hostHeader = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000';
+    const protocol = req.headers.get('x-forwarded-proto') || (hostHeader.includes('localhost') ? 'http' : 'https');
+
+    let appUrl = process.env.SHOPIFY_APP_URL;
+    if (!appUrl || appUrl.includes('localhost')) {
+      appUrl = `${protocol}://${hostHeader}`;
+    }
+    appUrl = appUrl.replace(/\/$/, '');
+
     const scopes = process.env.SCOPES || 'read_products,write_products,read_metafields,write_metafields,read_themes,write_themes';
 
     if (!apiKey || apiKey === 'mock_shopify_api_key') {
@@ -46,7 +54,7 @@ export async function GET(req: NextRequest) {
     response.cookies.set('shopify_oauth_state', nonce, {
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
+      sameSite: 'none',
       maxAge: 600, // 10 minutes
       path: '/',
     });
