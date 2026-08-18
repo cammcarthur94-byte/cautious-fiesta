@@ -1,6 +1,14 @@
 import { getServiceSupabase } from './supabase/client';
 import { createShopifyGraphQLClient } from './shopify/client';
 
+import {
+  SubscriptionRecord,
+  PlanTierKey,
+  PlanConfig,
+  PLAN_TIERS,
+  UsageCheckResult,
+} from './billing/plans';
+
 export * from './billing/plans';
 
 // In-memory fallback for local demo mode

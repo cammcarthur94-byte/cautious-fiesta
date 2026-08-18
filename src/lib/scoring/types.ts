@@ -83,3 +83,15 @@ export interface AuditJob {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface TonalDescriptions {
+  professional: string;
+  engaging: string;
+  concise: string;
+}
+
+export interface ImageAltTag {
+  image_index: number;
+  suggested_alt: string;
+}
+

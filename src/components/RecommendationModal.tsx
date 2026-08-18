@@ -18,7 +18,7 @@ import {
   Collapsible,
   Thumbnail,
 } from '@shopify/polaris';
-import { ShopifyProductItem, FAQPair } from '@/lib/scoring/types';
+import { ShopifyProductItem, FAQPair, TonalDescriptions, ImageAltTag } from '@/lib/scoring/types';
 import { ScoreBadge } from './ScoreBadge';
 
 interface RecommendationModalProps {
