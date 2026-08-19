@@ -231,6 +231,20 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      if (gqlResponse.status === 401 || gqlResponse.status === 403) {
+        console.warn('[SyncCatalog] Stale/invalid access token detected. Clearing session from Supabase...');
+        await supabase.from('shops').update({ access_token: null }).eq('shop_domain', shopDomain);
+        await supabase.from('stores').delete().eq('shop_domain', shopDomain);
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Shopify authorization expired or invalid. Please authorize the app to generate a fresh token.',
+            reauthUrl: `/api/auth?shop=${encodeURIComponent(shopDomain)}`,
+          },
+          { status: 401 }
+        );
+      }
+
       return NextResponse.json(
         {
           success: false,
