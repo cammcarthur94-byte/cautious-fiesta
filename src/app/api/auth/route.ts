@@ -49,22 +49,18 @@ export async function GET(req: NextRequest) {
     const nonce = generateNonce();
     const redirectUri = `${appUrl}/api/auth/callback`;
 
-    console.log('[OAuth Init] Constructing OAuth Auth URL:', {
+    console.log('[OAuth Init] Initiating Shopify OAuth Flow:', {
       shop,
       client_id: apiKey,
       redirect_uri: redirectUri,
-      forwardedHost,
-      hostHeader,
     });
 
-    const authUrl = new URL(`https://${shop}/admin/oauth/authorize`);
-    authUrl.searchParams.set('client_id', apiKey);
-    authUrl.searchParams.set('scope', scopes);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('state', nonce);
+    // Use Shopify Managed Install flow URL
+    const installUrl = new URL(`https://${shop}/admin/oauth/install`);
+    installUrl.searchParams.set('client_id', apiKey);
 
-    // Create response with redirect and store nonce in a secure httpOnly cookie
-    const response = NextResponse.redirect(authUrl.toString());
+    // Create response with redirect and store nonce in cookie
+    const response = NextResponse.redirect(installUrl.toString());
     response.cookies.set('shopify_oauth_state', nonce, {
       httpOnly: true,
       secure: true,
