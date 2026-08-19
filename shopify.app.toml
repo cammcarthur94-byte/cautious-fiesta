@@ -3,11 +3,11 @@
 client_id = "${SHOPIFY_API_KEY}"
 name = "AI GEO & AEO Optimizer"
 handle = "ai-geo-aeo-optimizer"
-application_url = "https://${HOST}"
+application_url = "https://magenta-piroshki-22a056.netlify.app"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
 dev_store_url = "${SHOPIFY_DEV_STORE}"
 
 [access_scopes]

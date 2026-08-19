@@ -21,16 +21,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.SHOPIFY_API_KEY;
-    const forwardedHost = req.headers.get('x-forwarded-host');
-    const hostHeader = forwardedHost || req.headers.get('host') || 'localhost:3000';
+    const rawForwardedHost = req.headers.get('x-forwarded-host');
+    const forwardedHost = rawForwardedHost ? rawForwardedHost.split(',')[0].trim().replace(/:\d+$/, '') : null;
+    const rawHost = req.headers.get('host') || 'localhost:3000';
+    const hostHeader = rawHost.split(',')[0].trim().replace(/:\d+$/, '');
     const protocol = req.headers.get('x-forwarded-proto') || (hostHeader.includes('localhost') ? 'http' : 'https');
 
-    let appUrl = process.env.SHOPIFY_APP_URL;
-    if (!appUrl) {
-      appUrl = forwardedHost ? `https://${forwardedHost}` : `${protocol}://${hostHeader}`;
+    let appUrl = process.env.SHOPIFY_APP_URL?.trim();
+    if (appUrl) {
+      appUrl = appUrl.replace(/\/+$/, '');
+    } else if (forwardedHost) {
+      appUrl = `https://${forwardedHost}`;
+    } else {
+      appUrl = `${protocol}://${hostHeader}`;
     }
-    appUrl = appUrl.replace(/\/$/, '');
 
     const scopes = process.env.SCOPES || 'read_products,write_products,read_metafields,write_metafields,read_themes,write_themes';
 
