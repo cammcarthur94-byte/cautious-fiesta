@@ -29,6 +29,11 @@ use_legacy_install_flow = true
 [webhooks]
 api_version = "2024-04"
 
+[webhooks.privacy_compliance]
+customer_data_request_url = "https://magenta-piroshki-22a056.netlify.app/api/webhooks/gdpr"
+customer_deletion_url = "https://magenta-piroshki-22a056.netlify.app/api/webhooks/gdpr"
+shop_deletion_url = "https://magenta-piroshki-22a056.netlify.app/api/webhooks/gdpr"
+
   [[webhooks.subscriptions]]
   topics = [ "products/update" ]
   uri = "/api/webhooks/products-update"
