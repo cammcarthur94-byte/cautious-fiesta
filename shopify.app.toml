@@ -16,7 +16,9 @@ scopes = "read_products,write_products,read_metafields,write_metafields,read_the
 
 [auth]
 redirect_urls = [
-  "https://${HOST}/api/auth/callback"
+  "https://${HOST}/api/auth/callback",
+  "https://magenta-piroshki-22a056.netlify.app/api/auth/callback",
+  "https://magenta-piroshki-22a056.netlify.app/api/auth"
 ]
 use_legacy_install_flow = true
 
