@@ -21,33 +21,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const apiKey = process.env.SHOPIFY_API_KEY;
-    const rawForwardedHost = req.headers.get('x-forwarded-host');
-    const forwardedHost = rawForwardedHost ? rawForwardedHost.split(',')[0].trim().replace(/:\d+$/, '') : null;
-    const rawHost = req.headers.get('host') || 'localhost:3000';
-    const hostHeader = rawHost.split(',')[0].trim().replace(/:\d+$/, '');
-
-    let appUrl = process.env.SHOPIFY_APP_URL?.trim();
-    if (!appUrl || appUrl.includes('your-app-name') || (appUrl.includes('localhost') && hostHeader && !hostHeader.includes('localhost'))) {
-      if (forwardedHost && !forwardedHost.includes('localhost')) {
-        appUrl = `https://${forwardedHost}`;
-      } else if (hostHeader && !hostHeader.includes('localhost')) {
-        appUrl = `https://${hostHeader}`;
-      } else {
-        appUrl = 'https://magenta-piroshki-22a056.netlify.app';
-      }
-    }
-    appUrl = appUrl.replace(/\/+$/, '');
-
-    let rawScopes = process.env.SCOPES || 'write_metaobject_definitions,write_metaobjects,write_products';
-    rawScopes = rawScopes
-      .replace(/\b(read_metafields|write_metafields|read_themes|write_themes)\b/g, '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .join(',');
-
-    const scopes = rawScopes || 'write_metaobject_definitions,write_metaobjects,write_products';
+    const apiKey = process.env.SHOPIFY_API_KEY || '015d247c50edff1cc10be4e8a63e43b8';
+    const appUrl = 'https://magenta-piroshki-22a056.netlify.app';
+    const scopes = 'write_metaobject_definitions,write_metaobjects,write_products';
 
     if (!apiKey || apiKey === 'mock_shopify_api_key') {
       return NextResponse.json(
