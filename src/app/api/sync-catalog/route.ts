@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase/client';
-import { getSessionByShop } from '@/lib/shopify/session';
+import { getSessionByShop, exchangeSessionTokenForOfflineAccessToken } from '@/lib/shopify/session';
 import { checkShopQuota } from '@/lib/billing/plan-limits';
 import { runDeterministicAudit } from '@/lib/scoring/deterministic';
 
@@ -94,12 +94,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Resolve Access Token from Supabase session store
+    // 2. Resolve Access Token from Supabase session store or Token Exchange
+    let authHeader = req.headers.get('authorization') || '';
+    let sessionToken = authHeader.replace(/^Bearer\s+/i, '').trim() || body.sessionToken || body.idToken;
     let accessToken = body.accessToken || process.env.SHOPIFY_ACCESS_TOKEN || process.env.SHOPIFY_ADMIN_TOKEN;
+
     if (!accessToken && shopDomain && shopDomain !== 'demo-store.myshopify.com') {
       const session = await getSessionByShop(shopDomain);
-      if (session) {
+      if (session?.accessToken) {
         accessToken = session.accessToken;
+      } else if (sessionToken) {
+        accessToken = await exchangeSessionTokenForOfflineAccessToken(shopDomain, sessionToken);
       }
     }
 
@@ -110,7 +115,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: `Shopify Admin API access token not found for store "${shopDomain}". Please authorize app permissions via Shopify OAuth.`,
+          error: `Shopify Admin API access token not found for store "${shopDomain}". Please click "Sync Store Catalog" inside Shopify Admin to complete token verification.`,
           reauthUrl: `/api/auth?shop=${encodeURIComponent(shopDomain)}`,
         },
         { status: 401 }

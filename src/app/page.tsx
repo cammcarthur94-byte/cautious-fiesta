@@ -52,11 +52,35 @@ export default function DashboardPage() {
   const [planLimit, setPlanLimit] = useState<number>(25);
   const [planName, setPlanName] = useState<string>('free');
 
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    let sessionToken: string | null = null;
+    try {
+      if (typeof window !== 'undefined' && (window as any).shopify?.idToken) {
+        sessionToken = await (window as any).shopify.idToken();
+      }
+    } catch (e) {
+      console.warn('App Bridge idToken error:', e);
+    }
+
+    const headers = new Headers(options.headers || {});
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+    if (sessionToken) {
+      headers.set('Authorization', `Bearer ${sessionToken}`);
+    }
+
+    return fetch(url, {
+      ...options,
+      headers,
+    });
+  }, []);
+
   const fetchCatalog = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(`/api/products?shop=${encodeURIComponent(shopDomain)}`);
+      const res = await fetchWithAuth(`/api/products?shop=${encodeURIComponent(shopDomain)}`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -74,7 +98,7 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [shopDomain]);
+  }, [shopDomain, fetchWithAuth]);
 
   useEffect(() => {
     fetchCatalog();
@@ -91,16 +115,15 @@ export default function DashboardPage() {
 
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/sync-catalog', {
+      const res = await fetchWithAuth('/api/sync-catalog', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopDomain }),
       });
       const data = await res.json();
       if (!data.success) {
         if (data.reauthUrl) {
           const fullReauthUrl = new URL(data.reauthUrl, window.location.origin).toString();
-          if (confirm(`Shopify OAuth permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
+          if (confirm(`Shopify permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
             if (window.top) {
               window.top.location.href = fullReauthUrl;
             } else {
@@ -134,9 +157,8 @@ export default function DashboardPage() {
 
     try {
       while (hasNextPage) {
-        const pageRes: Response = await fetch('/api/sync-catalog', {
+        const pageRes = await fetchWithAuth('/api/sync-catalog', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ shopDomain, cursor, limit: 100 }),
         });
         const pageData: any = await pageRes.json();
@@ -144,7 +166,7 @@ export default function DashboardPage() {
         if (!pageData.success) {
           if (pageData.reauthUrl) {
             const fullReauthUrl = new URL(pageData.reauthUrl, window.location.origin).toString();
-            if (confirm(`Shopify OAuth permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
+            if (confirm(`Shopify permissions are required to access store products for "${shopDomain}". Would you like to authorize app access now?`)) {
               if (window.top) {
                 window.top.location.href = fullReauthUrl;
               } else {
