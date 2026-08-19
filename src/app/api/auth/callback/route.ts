@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
         client_id: apiKey,
         client_secret: apiSecret,
         code,
+        expiring: 1,
       }),
     });
 
