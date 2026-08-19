@@ -24,24 +24,11 @@ const PRODUCTS_GRAPHQL_QUERY = `
             url
             altText
           }
-          variants(first: 5) {
+          images(first: 5) {
             edges {
               node {
-                id
-                price
-                sku
-              }
-            }
-          }
-          media(first: 5) {
-            edges {
-              node {
-                ... on MediaImage {
-                  image {
-                    url
-                    altText
-                  }
-                }
+                url
+                altText
               }
             }
           }
@@ -283,9 +270,9 @@ export async function POST(req: NextRequest) {
       const node = edge.node;
       const numericId = parseShopifyId(node.id);
 
-      const mediaImageUrl = node.media?.edges?.[0]?.node?.image?.url;
       const featuredImageUrl = node.featuredImage?.url;
-      const imageUrl = mediaImageUrl || featuredImageUrl || null;
+      const imagesFirstUrl = node.images?.edges?.[0]?.node?.url;
+      const imageUrl = featuredImageUrl || imagesFirstUrl || null;
 
       return {
         shop_id: shopId,
