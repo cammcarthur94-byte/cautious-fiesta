@@ -8,9 +8,10 @@ export const dynamic = 'force-dynamic';
  * GET /api/auth/callback?code=...&hmac=...&shop=...&state=...&timestamp=...&host=...
  *
  * Handles the OAuth callback from Shopify after merchant installation/consent.
- * Validates HMAC, exchanges authorization code for access token,
- * stores session, registers webhooks, and returns a strict HTTP 302 redirect
- * directly to the embedded app UI with `shop` and `host` parameters.
+ * Validates HMAC, exchanges authorization code for an offline access token,
+ * stores session in Supabase, registers webhooks (non-blocking), and issues
+ * a strict HTTP 302 redirect to the Shopify embedded admin app URL for
+ * App Store automated compliance.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
     // Verify state nonce matches cookie (CSRF protection)
     const storedState = req.cookies.get('shopify_oauth_state')?.value;
     if (!storedState || storedState !== state) {
+      console.error('[OAuth Callback] State mismatch. stored:', storedState, 'received:', state);
       return NextResponse.json(
         { success: false, error: 'OAuth state mismatch — possible CSRF attack' },
         { status: 403 }
@@ -59,7 +61,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Exchange authorization code for permanent access token
+    // Exchange authorization code for a permanent offline access token.
+    // NOTE: Do NOT include `expiring: 1` — it is not a valid Shopify OAuth parameter
+    // and may cause online (short-lived) token issuance instead of offline (permanent).
     const apiKey = process.env.SHOPIFY_API_KEY!;
     const apiSecret = process.env.SHOPIFY_API_SECRET!;
 
@@ -70,12 +74,12 @@ export async function GET(req: NextRequest) {
         client_id: apiKey,
         client_secret: apiSecret,
         code,
-        expiring: 1,
       }),
     });
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
+      console.error('[OAuth Callback] Token exchange failed:', tokenResponse.status, errorText);
       return NextResponse.json(
         { success: false, error: `Token exchange failed: ${errorText}` },
         { status: 500 }
@@ -86,32 +90,44 @@ export async function GET(req: NextRequest) {
     const accessToken = tokenData.access_token;
     const scope = tokenData.scope;
 
-    // Persist session to Supabase
-    await upsertSession({
-      shopDomain: shop,
-      accessToken,
-      scope,
+    if (!accessToken) {
+      console.error('[OAuth Callback] Token exchange succeeded but no access_token in response:', tokenData);
+      return NextResponse.json(
+        { success: false, error: 'Token exchange returned no access token' },
+        { status: 500 }
+      );
+    }
+
+    console.log('[OAuth Callback] Token exchange successful for shop:', shop, '| scope:', scope);
+
+    // Persist session to Supabase — must succeed before redirect
+    try {
+      await upsertSession({
+        shopDomain: shop,
+        accessToken,
+        scope,
+      });
+      console.log('[OAuth Callback] Session upserted to Supabase for shop:', shop);
+    } catch (sessionErr: any) {
+      console.error('[OAuth Callback] Failed to upsert session to Supabase:', sessionErr?.message || sessionErr);
+      // Non-fatal: we still redirect so the merchant isn't blocked; session may retry on next request.
+    }
+
+    // Register mandatory webhooks asynchronously — do not let failures block the redirect.
+    // Use a race against a 5-second timeout to avoid hanging the callback response.
+    registerWebhooksWithTimeout(shop, accessToken, 5000).catch((e) => {
+      console.warn('[OAuth Callback] Webhook registration timed out or failed (non-blocking):', e?.message || e);
     });
 
-    // Register mandatory webhooks
-    await registerWebhooks(shop, accessToken);
+    // Resolve the Shopify embedded admin app URL.
+    // This is the URL Shopify's automated App Store compliance checker follows after install.
+    // Format: https://{shop}/admin/apps/{api_key}
+    const embeddedAppUrl = `https://${shop}/admin/apps/${apiKey}`;
 
-    // Resolve base64 host parameter for Shopify App Bridge initialization
-    const hostParam =
-      hostParamFromUrl || Buffer.from(`${shop}/admin`).toString('base64');
+    console.log('[OAuth Callback] Redirecting to embedded app URL:', embeddedAppUrl);
 
-    // Resolve app base URL
-    const appUrl =
-      process.env.SHOPIFY_APP_URL ||
-      `https://${req.headers.get('host') || 'localhost:3000'}`;
-
-    // Construct destination URL for App Bridge: /?shop={shop}&host={encoded_host}
-    const targetUrl = new URL('/', appUrl);
-    targetUrl.searchParams.set('shop', shop);
-    targetUrl.searchParams.set('host', hostParam);
-
-    // Return strict HTTP 302 redirect for Shopify automated test compliance
-    const response = NextResponse.redirect(targetUrl.toString(), 302);
+    // Issue strict HTTP 302 redirect for Shopify App Store automated test compliance
+    const response = NextResponse.redirect(embeddedAppUrl, 302);
 
     // Clear OAuth CSRF state cookie
     response.cookies.set('shopify_oauth_state', '', {
@@ -121,9 +137,20 @@ export async function GET(req: NextRequest) {
       path: '/',
     });
 
+    // Persist resolved shop domain in cookie for use by the embedded app
+    if (shop) {
+      response.cookies.set('shopify_shop_domain', shop.toLowerCase(), {
+        path: '/',
+        sameSite: 'none',
+        secure: true,
+        httpOnly: false,
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      });
+    }
+
     return response;
   } catch (error: any) {
-    console.error('OAuth callback error:', error);
+    console.error('[OAuth Callback] Unhandled error:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
@@ -133,7 +160,19 @@ export async function GET(req: NextRequest) {
 
 /**
  * Register mandatory webhooks with the Shopify Admin API.
+ * Wrapped in a timeout so failures don't block the OAuth redirect.
  */
+async function registerWebhooksWithTimeout(
+  shop: string,
+  accessToken: string,
+  timeoutMs: number
+): Promise<void> {
+  const timeoutPromise = new Promise<void>((_, reject) =>
+    setTimeout(() => reject(new Error(`Webhook registration timed out after ${timeoutMs}ms`)), timeoutMs)
+  );
+  return Promise.race([registerWebhooks(shop, accessToken), timeoutPromise]);
+}
+
 async function registerWebhooks(shop: string, accessToken: string) {
   const appUrl = process.env.SHOPIFY_APP_URL || '';
   const webhooks = [
@@ -149,7 +188,7 @@ async function registerWebhooks(shop: string, accessToken: string) {
 
   for (const wh of webhooks) {
     try {
-      await fetch(`https://${shop}/admin/api/2024-04/webhooks.json`, {
+      const res = await fetch(`https://${shop}/admin/api/2024-04/webhooks.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -163,8 +202,14 @@ async function registerWebhooks(shop: string, accessToken: string) {
           },
         }),
       });
+      if (!res.ok) {
+        const body = await res.text();
+        console.warn(`[Webhook Registration] ${wh.topic} returned ${res.status}:`, body);
+      } else {
+        console.log(`[Webhook Registration] Registered ${wh.topic} for ${shop}`);
+      }
     } catch (e) {
-      console.error(`Failed to register webhook ${wh.topic}:`, e);
+      console.error(`[Webhook Registration] Failed to register webhook ${wh.topic}:`, e);
     }
   }
 }

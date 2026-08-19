@@ -75,11 +75,18 @@ export async function upsertSession(session: {
   accessToken: string;
   scope: string;
 }): Promise<void> {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn(
+      '[upsertSession] SUPABASE_SERVICE_ROLE_KEY is not set — session will NOT be persisted for shop:',
+      session.shopDomain
+    );
+    return;
+  }
 
   const supabase = getServiceSupabase();
 
-  await supabase.from('stores').upsert(
+  // Upsert into `stores` table (primary session store)
+  const { error: storesError } = await supabase.from('stores').upsert(
     {
       shop_domain: session.shopDomain,
       access_token: session.accessToken,
@@ -88,16 +95,24 @@ export async function upsertSession(session: {
     },
     { onConflict: 'shop_domain' }
   );
+  if (storesError) {
+    console.error('[upsertSession] Failed to upsert into `stores` table:', storesError.message);
+  }
 
-  await supabase.from('shops').upsert(
+  // Upsert into `shops` table (used by billing, cron re-audit, and getAllActiveShops)
+  const { error: shopsError } = await supabase.from('shops').upsert(
     {
       shop_domain: session.shopDomain,
       access_token: session.accessToken,
+      scope: session.scope,
       is_installed: true,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'shop_domain' }
   );
+  if (shopsError) {
+    console.error('[upsertSession] Failed to upsert into `shops` table:', shopsError.message);
+  }
 }
 
 /**

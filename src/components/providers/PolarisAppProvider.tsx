@@ -12,7 +12,7 @@ function PolarisAppProviderInner({ children }: { children: React.ReactNode }) {
   const host = searchParams.get('host') || '';
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true';
 
-  // App Bridge config — only used when we have a valid host (embedded context)
+  // App Bridge config — only active when we have a valid host (embedded context)
   const appBridgeConfig = useMemo(() => {
     if (isDemo || !host) return undefined;
     return {
@@ -23,7 +23,7 @@ function PolarisAppProviderInner({ children }: { children: React.ReactNode }) {
   }, [host, isDemo]);
 
   return (
-    <AppProvider i18n={enTranslations}>
+    <AppProvider i18n={enTranslations} {...(appBridgeConfig ? { app: appBridgeConfig } : {})}>
       {children}
     </AppProvider>
   );
