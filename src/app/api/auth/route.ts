@@ -55,12 +55,14 @@ export async function GET(req: NextRequest) {
       redirect_uri: redirectUri,
     });
 
-    // Use Shopify Managed Install flow URL
-    const installUrl = new URL(`https://${shop}/admin/oauth/install`);
-    installUrl.searchParams.set('client_id', apiKey);
+    const authUrl = new URL(`https://${shop}/admin/oauth/authorize`);
+    authUrl.searchParams.set('client_id', apiKey);
+    authUrl.searchParams.set('scope', scopes);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('state', nonce);
 
     // Create response with redirect and store nonce in cookie
-    const response = NextResponse.redirect(installUrl.toString());
+    const response = NextResponse.redirect(authUrl.toString());
     response.cookies.set('shopify_oauth_state', nonce, {
       httpOnly: true,
       secure: true,

@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: `Shopify Admin API access token not found for store "${shopDomain}". Please click "Sync Store Catalog" inside Shopify Admin to complete token verification.`,
+          error: `Shopify Admin API access token not found for store "${shopDomain}". Please click "Authorize App" to connect your store.`,
           reauthUrl: `/api/auth?shop=${encodeURIComponent(shopDomain)}`,
         },
         { status: 401 }
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
         .upsert(
           {
             shop_domain: shopDomain,
-            access_token: accessToken || 'demo_token',
+            access_token: accessToken || '',
             is_installed: true,
             updated_at: new Date().toISOString(),
           },
@@ -157,14 +157,21 @@ export async function POST(req: NextRequest) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (accessToken) {
+      headers['X-Shopify-Access-Token'] = accessToken;
+    } else if (sessionToken) {
+      headers['Authorization'] = `Bearer ${sessionToken}`;
+    }
+
     let gqlResponse: Response;
     try {
       gqlResponse = await fetch(shopifyApiUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken || 'demo_token',
-        },
+        headers,
         signal: controller.signal,
         body: JSON.stringify({
           query: PRODUCTS_GRAPHQL_QUERY,
