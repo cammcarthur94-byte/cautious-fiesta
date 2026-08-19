@@ -22,6 +22,11 @@ export async function GET(req: NextRequest) {
     }
 
     const apiKey = process.env.SHOPIFY_API_KEY;
+    const rawForwardedHost = req.headers.get('x-forwarded-host');
+    const forwardedHost = rawForwardedHost ? rawForwardedHost.split(',')[0].trim().replace(/:\d+$/, '') : null;
+    const rawHost = req.headers.get('host') || 'localhost:3000';
+    const hostHeader = rawHost.split(',')[0].trim().replace(/:\d+$/, '');
+
     let appUrl = process.env.SHOPIFY_APP_URL?.trim();
     if (!appUrl || appUrl.includes('your-app-name') || (appUrl.includes('localhost') && hostHeader && !hostHeader.includes('localhost'))) {
       if (forwardedHost && !forwardedHost.includes('localhost')) {
