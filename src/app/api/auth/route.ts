@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       appUrl = `${protocol}://${hostHeader}`;
     }
 
-    const scopes = process.env.SCOPES || 'read_products,write_products,read_themes,write_themes,write_metaobject_definitions,write_metaobjects';
+    const scopes = process.env.SCOPES || 'write_metaobject_definitions,write_metaobjects,write_products';
 
     if (!apiKey || apiKey === 'mock_shopify_api_key') {
       return NextResponse.json(
