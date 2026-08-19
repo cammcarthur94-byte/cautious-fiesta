@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const apiKey = process.env.SHOPIFY_API_KEY;
     const rawForwardedHost = req.headers.get('x-forwarded-host');
     const forwardedHost = rawForwardedHost ? rawForwardedHost.split(',')[0].trim().replace(/:\d+$/, '') : null;
     const rawHost = req.headers.get('host') || 'localhost:3000';
