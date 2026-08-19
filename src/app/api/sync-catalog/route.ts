@@ -157,9 +157,9 @@ export async function POST(req: NextRequest) {
     console.log('[SyncCatalog] Resolved Shop UUID:', shopId);
 
     // =========================================================================
-    // 4. FETCH PRODUCTS VIA SHOPIFY ADMIN GRAPHQL API (2026-04) WITH TIMEOUT
+    // 4. FETCH PRODUCTS VIA SHOPIFY ADMIN GRAPHQL API (2024-04) WITH TIMEOUT
     // =========================================================================
-    const shopifyApiUrl = `https://${shopDomain}/admin/api/2026-04/graphql.json`;
+    const shopifyApiUrl = `https://${shopDomain}/admin/api/2024-04/graphql.json`;
     console.log('[SyncCatalog] Issuing GraphQL POST to:', shopifyApiUrl);
 
     const controller = new AbortController();
