@@ -3,7 +3,10 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@shopify/polaris'],
   env: {
-    NEXT_PUBLIC_SHOPIFY_API_KEY: process.env.SHOPIFY_API_KEY || process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || '015d247c50edff1cc10be4e8a63e43b8',
+    SHOPIFY_APP_URL: 'https://magenta-piroshki-22a056.netlify.app',
+    SCOPES: 'write_metaobject_definitions,write_metaobjects,write_products',
+    SHOPIFY_API_KEY: '015d247c50edff1cc10be4e8a63e43b8',
+    NEXT_PUBLIC_SHOPIFY_API_KEY: '015d247c50edff1cc10be4e8a63e43b8',
   },
   images: {
     remotePatterns: [
