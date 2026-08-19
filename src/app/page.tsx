@@ -57,14 +57,17 @@ export default function DashboardPage() {
     setFetchError(null);
     try {
       const res = await fetch(`/api/products?shop=${encodeURIComponent(shopDomain)}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
       const data = await res.json();
-      if (data.products) {
+      if (data && Array.isArray(data.products)) {
         setProducts(data.products);
         setUsageCount(data.optimizationsUsed || 0);
         if (data.planLimit) setPlanLimit(data.planLimit);
         if (data.planName) setPlanName(data.planName);
       } else {
-        setFetchError('Failed to parse products catalog.');
+        setFetchError('Invalid product catalog response format.');
       }
     } catch (err: any) {
       setFetchError(err.message || 'Network error fetching products.');
