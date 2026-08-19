@@ -62,6 +62,12 @@ CREATE TABLE shops (
     is_installed BOOLEAN NOT NULL DEFAULT true,
     plan_name TEXT NOT NULL DEFAULT 'free',
     active_plan TEXT NOT NULL DEFAULT 'FREE',
+    -- Freemium tier fields
+    plan_tier TEXT NOT NULL DEFAULT 'free',                        -- 'free' | 'growth_pilot'
+    subscription_status TEXT NOT NULL DEFAULT 'inactive',          -- 'active' | 'inactive' | 'trial'
+    monthly_evaluations_used INTEGER NOT NULL DEFAULT 0,           -- AI eval quota counter
+    synced_products_count INTEGER NOT NULL DEFAULT 0,              -- catalog product cap counter
+    -- Billing fields
     shopify_subscription_id TEXT,
     billing_cycle_end TIMESTAMPTZ,
     optimizations_used_this_month INTEGER NOT NULL DEFAULT 0,

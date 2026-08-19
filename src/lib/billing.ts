@@ -7,6 +7,8 @@ import {
   PlanConfig,
   PLAN_TIERS,
   UsageCheckResult,
+  resolveCanonicalPlan,
+  LEGACY_PLAN_MAP,
 } from './billing/plans';
 
 export * from './billing/plans';
@@ -17,7 +19,7 @@ const demoSubscriptions: Record<string, SubscriptionRecord> = {
     shop_domain: 'demo-store.myshopify.com',
     active_plan: 'FREE',
     billing_cycle_end: new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString(),
-    optimizations_used_this_month: 2,
+    optimizations_used_this_month: 0,
     shopify_subscription_id: null,
     status: 'ACTIVE',
   },
@@ -68,10 +70,19 @@ export async function getSubscription(shopDomain: string): Promise<SubscriptionR
     return defaultSub;
   }
 
-  // Check if billing cycle has rolled over
+  // Normalize any legacy plan key that survived in the DB
+  const canonicalPlan = resolveCanonicalPlan(data.active_plan);
+  if (canonicalPlan !== data.active_plan) {
+    await supabase
+      .from('subscriptions')
+      .update({ active_plan: canonicalPlan })
+      .eq('shop_domain', shopDomain);
+    data.active_plan = canonicalPlan;
+  }
+
+  // Check if billing cycle has rolled over → reset usage counters
   const cycleEnd = new Date(data.billing_cycle_end);
   if (now > cycleEnd) {
-    // Reset usage for the new billing cycle
     const nextCycleEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const updated = {
       ...data,
@@ -80,10 +91,13 @@ export async function getSubscription(shopDomain: string): Promise<SubscriptionR
     };
     await supabase
       .from('subscriptions')
-      .update({
-        billing_cycle_end: nextCycleEnd,
-        optimizations_used_this_month: 0,
-      })
+      .update({ billing_cycle_end: nextCycleEnd, optimizations_used_this_month: 0 })
+      .eq('shop_domain', shopDomain);
+
+    // Also reset shops.monthly_evaluations_used
+    await supabase
+      .from('shops')
+      .update({ monthly_evaluations_used: 0, billing_cycle_end: nextCycleEnd })
       .eq('shop_domain', shopDomain);
 
     return updated;
@@ -93,34 +107,55 @@ export async function getSubscription(shopDomain: string): Promise<SubscriptionR
 }
 
 /**
- * Check if the merchant has available optimization quota.
+ * Check if the merchant has available AI evaluation quota.
+ * Returns enriched result including product catalog cap status.
  */
 export async function checkUsageLimit(shopDomain: string): Promise<UsageCheckResult> {
   const sub = await getSubscription(shopDomain);
-  const planConfig = PLAN_TIERS[sub.active_plan] || PLAN_TIERS.FREE;
+  const canonicalPlan = resolveCanonicalPlan(sub.active_plan);
+  const planConfig = PLAN_TIERS[canonicalPlan] || PLAN_TIERS.FREE;
   const limit = planConfig.limit;
+  const productLimit = planConfig.productLimit;
   const used = sub.optimizations_used_this_month || 0;
   const remaining = Math.max(0, limit - used);
   const percent = Math.min(100, Math.round((used / limit) * 100));
   const allowed = used < limit;
 
+  // Fetch synced product count from shops table
+  let syncedProducts = 0;
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const supabase = getServiceSupabase();
+    const { data: shopRow } = await supabase
+      .from('shops')
+      .select('synced_products_count')
+      .eq('shop_domain', shopDomain)
+      .single();
+    syncedProducts = shopRow?.synced_products_count ?? 0;
+  }
+
+  const productCapReached = syncedProducts >= productLimit;
+
   return {
     allowed,
-    activePlan: sub.active_plan,
+    activePlan: canonicalPlan,
     planName: planConfig.name,
     used,
     limit,
     remaining,
     percent,
     billingCycleEnd: sub.billing_cycle_end,
+    syncedProducts,
+    productLimit,
+    productCapReached,
     message: allowed
       ? undefined
-      : `Monthly optimization limit reached (${used}/${limit}). Please upgrade to Basic or Pro to unlock more optimizations.`,
+      : `Monthly AI evaluation limit reached (${used}/${limit}). Upgrade to Growth Pilot ($29/mo) for 50 evaluations/month and up to 500 products.`,
   };
 }
 
 /**
  * Increment the optimization usage counter by a given amount (default 1).
+ * Updates both the subscriptions table and shops.monthly_evaluations_used atomically.
  */
 export async function incrementUsage(shopDomain: string, count: number = 1): Promise<number> {
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -141,11 +176,18 @@ export async function incrementUsage(shopDomain: string, count: number = 1): Pro
     .update({ optimizations_used_this_month: newCount })
     .eq('shop_domain', shopDomain);
 
+  // Mirror to shops table for cross-table quota reads
+  await supabase
+    .from('shops')
+    .update({ monthly_evaluations_used: newCount })
+    .eq('shop_domain', shopDomain);
+
   return newCount;
 }
 
 /**
  * Upsert subscription details (e.g. from Shopify webhook or demo toggle).
+ * Automatically resolves legacy BASIC/PRO keys to GROWTH_PILOT.
  */
 export async function upsertSubscriptionRecord(
   shopDomain: string,
@@ -153,13 +195,14 @@ export async function upsertSubscriptionRecord(
 ): Promise<SubscriptionRecord> {
   const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+  // Normalize legacy plan key
+  if (record.active_plan) {
+    record.active_plan = resolveCanonicalPlan(record.active_plan);
+  }
+
   if (isDemo) {
     const current = await getSubscription(shopDomain);
-    const updated: SubscriptionRecord = {
-      ...current,
-      ...record,
-      shop_domain: shopDomain,
-    };
+    const updated: SubscriptionRecord = { ...current, ...record, shop_domain: shopDomain };
     demoSubscriptions[shopDomain] = updated;
     return updated;
   }
@@ -168,11 +211,7 @@ export async function upsertSubscriptionRecord(
   const { data, error } = await supabase
     .from('subscriptions')
     .upsert(
-      {
-        shop_domain: shopDomain,
-        ...record,
-        updated_at: new Date().toISOString(),
-      },
+      { shop_domain: shopDomain, ...record, updated_at: new Date().toISOString() },
       { onConflict: 'shop_domain' }
     )
     .select()
@@ -182,16 +221,32 @@ export async function upsertSubscriptionRecord(
     throw new Error(`Failed to update subscription in Supabase: ${error?.message}`);
   }
 
+  // Keep shops table in sync with plan_tier and subscription_status
+  const canonicalPlan = resolveCanonicalPlan(data.active_plan);
+  const planTier = canonicalPlan === 'GROWTH_PILOT' ? 'growth_pilot' : 'free';
+  const subscriptionStatus =
+    data.status === 'ACTIVE' && canonicalPlan !== 'FREE'
+      ? 'active'
+      : data.status === 'PENDING'
+      ? 'trial'
+      : 'inactive';
+
+  await supabase
+    .from('shops')
+    .update({ plan_tier: planTier, subscription_status: subscriptionStatus, updated_at: new Date().toISOString() })
+    .eq('shop_domain', shopDomain);
+
   return data;
 }
 
 /**
- * GraphQL Mutation to create an app recurring subscription via Shopify Billing API.
+ * GraphQL Mutation: create an app recurring subscription via Shopify Billing API.
+ * Only accepts GROWTH_PILOT as the paid plan key.
  */
 export async function createAppSubscriptionGraphQL(options: {
   shopDomain: string;
   accessToken: string;
-  planKey: 'BASIC' | 'PRO';
+  planKey: 'GROWTH_PILOT';
   returnUrl: string;
   isTest?: boolean;
 }): Promise<{ confirmationUrl: string; appSubscriptionId: string }> {
@@ -199,7 +254,7 @@ export async function createAppSubscriptionGraphQL(options: {
   const plan = PLAN_TIERS[planKey];
 
   if (!plan) {
-    throw new Error(`Invalid plan key: ${planKey}`);
+    throw new Error(`Invalid plan key: ${planKey}. Only 'GROWTH_PILOT' is a valid paid plan.`);
   }
 
   const client = await createShopifyGraphQLClient(shopDomain, accessToken);
@@ -251,8 +306,8 @@ export async function createAppSubscriptionGraphQL(options: {
   };
 
   const response: any = await client.request(mutation, { variables });
-
   const result = response.data?.appSubscriptionCreate;
+
   if (result?.userErrors?.length > 0) {
     const errorMsg = result.userErrors.map((e: any) => `${e.field}: ${e.message}`).join(', ');
     throw new Error(`Shopify Billing Error: ${errorMsg}`);

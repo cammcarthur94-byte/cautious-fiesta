@@ -65,16 +65,32 @@ export async function POST(req: NextRequest) {
 
     console.log('[SyncCatalog] Target Shop Domain:', shopDomain);
 
-    // 1. Check Plan Quota
+    // 1. Check Plan Quota (AI evaluations + product catalog cap)
     const quotaStatus = await checkShopQuota(shopDomain);
     console.log('[SyncCatalog] Plan Quota Status:', quotaStatus);
 
-    if (!quotaStatus.hasQuota) {
-      console.warn('[SyncCatalog] Quota Limit Exceeded for:', shopDomain);
+    // Block if the product catalog cap has been reached (Free tier: 10 products)
+    if (!quotaStatus.hasProductQuota) {
+      console.warn('[SyncCatalog] Product catalog cap reached for:', shopDomain);
       return NextResponse.json(
         {
           success: false,
-          error: `Monthly AI audit quota reached (${quotaStatus.usedCount}/${quotaStatus.planLimit} audits used) for your active ${quotaStatus.planName.toUpperCase()} plan. Please upgrade your subscription to sync more products.`,
+          error: `Product catalog limit reached (${quotaStatus.syncedProducts}/${quotaStatus.productLimit} products) on your ${quotaStatus.planName} plan. Upgrade to Growth Pilot ($29/mo) to sync up to 500 products with weekly automated audits.`,
+          upgradeUrl: `/pricing?shop=${encodeURIComponent(shopDomain)}`,
+          quotaStatus,
+        },
+        { status: 429 }
+      );
+    }
+
+    // Block if monthly AI evaluation quota is exhausted
+    if (!quotaStatus.hasQuota) {
+      console.warn('[SyncCatalog] AI evaluation quota exceeded for:', shopDomain);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Monthly AI evaluation limit reached (${quotaStatus.usedCount}/${quotaStatus.planLimit} used) on your ${quotaStatus.planName} plan. Upgrade to Growth Pilot ($29/mo) for 50 AI evaluations/month.`,
+          upgradeUrl: `/pricing?shop=${encodeURIComponent(shopDomain)}`,
           quotaStatus,
         },
         { status: 429 }
@@ -376,6 +392,20 @@ export async function POST(req: NextRequest) {
       } else {
         console.log(`[SyncCatalog] Queued ${queueRows.length} items for background AI evaluation.`);
       }
+    }
+
+    // Increment synced_products_count on shops table for quota tracking
+    if (edges.length > 0 && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      await supabase
+        .from('shops')
+        .update({
+          synced_products_count: Math.min(
+            quotaStatus.productLimit,
+            (quotaStatus.syncedProducts || 0) + edges.length
+          ),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('shop_domain', shopDomain);
     }
 
     console.log('[SyncCatalog] === Catalog Sync Completed Successfully ===');

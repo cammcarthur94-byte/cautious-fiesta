@@ -1,18 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createAppSubscriptionGraphQL, upsertSubscriptionRecord, PLAN_TIERS, PlanTierKey } from '@/lib/billing';
+import {
+  createAppSubscriptionGraphQL,
+  upsertSubscriptionRecord,
+  PLAN_TIERS,
+  PlanTierKey,
+  resolveCanonicalPlan,
+} from '@/lib/billing';
 import { getSessionByShop } from '@/lib/shopify/session';
+
+const VALID_PLAN_KEYS: PlanTierKey[] = ['FREE', 'GROWTH_PILOT'];
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const { searchParams } = new URL(req.url);
 
-    const planName = (body.planName || searchParams.get('plan') || '').toUpperCase() as PlanTierKey;
+    const rawPlanName = (body.planName || searchParams.get('plan') || '').toUpperCase();
     const shopDomain = body.shopDomain || searchParams.get('shop') || 'demo-store.myshopify.com';
 
-    if (!planName || !['FREE', 'BASIC', 'PRO'].includes(planName)) {
+    // Resolve canonical plan (handles legacy BASIC/PRO → GROWTH_PILOT)
+    const planName = resolveCanonicalPlan(rawPlanName) as PlanTierKey;
+
+    if (!planName || !VALID_PLAN_KEYS.includes(planName)) {
       return NextResponse.json(
-        { success: false, error: `Invalid plan specified. Must be 'FREE', 'BASIC', or 'PRO'.` },
+        {
+          success: false,
+          error: `Invalid plan specified. Must be 'FREE' or 'GROWTH_PILOT'. Received: '${rawPlanName}'.`,
+        },
         { status: 400 }
       );
     }
@@ -27,7 +41,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Successfully downgraded to Free tier.',
+        message: 'Successfully downgraded to Free Plan.',
         activePlan: 'FREE',
         redirectUrl: `/?shop=${encodeURIComponent(shopDomain)}&billing=downgraded`,
       });
@@ -35,13 +49,19 @@ export async function POST(req: NextRequest) {
 
     // Check for demo mode or missing credentials
     const session = await getSessionByShop(shopDomain);
-    const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !session?.accessToken || session.accessToken === 'demo_access_token';
+    const isDemo =
+      process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ||
+      !session?.accessToken ||
+      session.accessToken === 'demo_access_token';
 
-    const appUrl = 'https://magenta-piroshki-22a056.netlify.app';
+    const appUrl =
+      process.env.SHOPIFY_APP_URL ||
+      `https://${req.headers.get('host') || 'localhost:3000'}`;
+
     const returnUrl = `${appUrl}/?shop=${encodeURIComponent(shopDomain)}&billing=success&plan=${planName}`;
 
     if (isDemo) {
-      // In demo mode, simulate immediate plan upgrade
+      // In demo mode, simulate immediate plan upgrade without Shopify billing call
       await upsertSubscriptionRecord(shopDomain, {
         active_plan: planName,
         shopify_subscription_id: `demo_sub_${Date.now()}`,
@@ -60,12 +80,12 @@ export async function POST(req: NextRequest) {
     // Real Shopify GraphQL App Subscription Creation
     const { confirmationUrl, appSubscriptionId } = await createAppSubscriptionGraphQL({
       shopDomain,
-      accessToken: session.accessToken,
-      planKey: planName as 'BASIC' | 'PRO',
+      accessToken: session!.accessToken,
+      planKey: 'GROWTH_PILOT', // Only paid tier
       returnUrl,
     });
 
-    // Mark as pending until webhook or confirmation
+    // Mark as pending until Shopify webhook confirms activation
     await upsertSubscriptionRecord(shopDomain, {
       shopify_subscription_id: appSubscriptionId,
       status: 'PENDING',
@@ -78,15 +98,16 @@ export async function POST(req: NextRequest) {
       plan: PLAN_TIERS[planName],
     });
   } catch (error: any) {
-    console.error('Billing Subscribe API Error:', error);
+    console.error('[BillingSubscribe] Error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
 export async function GET(req: NextRequest) {
-  // Support GET redirect for direct link clicking
+  // Support GET redirect for direct link clicking (e.g. from email CTAs)
   const { searchParams } = new URL(req.url);
-  const plan = (searchParams.get('plan') || 'BASIC').toUpperCase() as PlanTierKey;
+  const rawPlan = (searchParams.get('plan') || 'GROWTH_PILOT').toUpperCase();
+  const plan = resolveCanonicalPlan(rawPlan) as PlanTierKey;
   const shop = searchParams.get('shop') || 'demo-store.myshopify.com';
 
   const host = req.headers.get('host') || 'localhost:3000';
@@ -103,5 +124,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(data.confirmationUrl);
   }
 
-  return NextResponse.redirect(`${protocol}://${host}/pricing?error=${encodeURIComponent(data.error || 'Failed to initialize subscription')}`);
+  return NextResponse.redirect(
+    `${protocol}://${host}/pricing?error=${encodeURIComponent(data.error || 'Failed to initialize subscription')}&shop=${encodeURIComponent(shop)}`
+  );
 }
