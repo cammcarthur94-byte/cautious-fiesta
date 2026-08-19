@@ -12,13 +12,16 @@ dev_store_url = "${SHOPIFY_DEV_STORE}"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,write_products,read_metafields,write_metafields,read_themes,write_themes"
+scopes = "read_products,write_products,read_themes,write_themes,write_metaobject_definitions,write_metaobjects"
 
 [auth]
 redirect_urls = [
   "https://${HOST}/api/auth/callback",
   "https://magenta-piroshki-22a056.netlify.app/api/auth/callback",
-  "https://magenta-piroshki-22a056.netlify.app/api/auth"
+  "https://magenta-piroshki-22a056.netlify.app/api/auth",
+  "https://magenta-piroshki-22a056.netlify.app/auth/callback",
+  "https://magenta-piroshki-22a056.netlify.app/",
+  "https://magenta-piroshki-22a056.netlify.app"
 ]
 use_legacy_install_flow = true
 
