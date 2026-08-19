@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     const session = await getSessionByShop(shopDomain);
     const isDemo = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !session?.accessToken || session.accessToken === 'demo_access_token';
 
-    const appUrl = process.env.SHOPIFY_APP_URL || (req.headers.get('host') ? `https://${req.headers.get('host')}` : 'http://localhost:3000');
+    const appUrl = 'https://magenta-piroshki-22a056.netlify.app';
     const returnUrl = `${appUrl}/?shop=${encodeURIComponent(shopDomain)}&billing=success&plan=${planName}`;
 
     if (isDemo) {
