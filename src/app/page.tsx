@@ -54,12 +54,18 @@ export default function DashboardPage() {
 
   const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
     let sessionToken: string | null = null;
-    try {
-      if (typeof window !== 'undefined' && (window as any).shopify?.idToken) {
-        sessionToken = await (window as any).shopify.idToken();
+    if (typeof window !== 'undefined') {
+      for (let i = 0; i < 5; i++) {
+        if ((window as any).shopify && typeof (window as any).shopify.idToken === 'function') {
+          try {
+            sessionToken = await (window as any).shopify.idToken();
+            if (sessionToken) break;
+          } catch (e) {
+            console.warn('App Bridge idToken attempt error:', e);
+          }
+        }
+        await new Promise(r => setTimeout(r, 150));
       }
-    } catch (e) {
-      console.warn('App Bridge idToken error:', e);
     }
 
     const headers = new Headers(options.headers || {});

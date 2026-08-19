@@ -15,8 +15,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <meta name="shopify-api-key" content={process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || process.env.SHOPIFY_API_KEY || ''} />
-        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" async></script>
+        <meta name="shopify-api-key" content={process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || '015d247c50edff1cc10be4e8a63e43b8'} />
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key={process.env.NEXT_PUBLIC_SHOPIFY_API_KEY || '015d247c50edff1cc10be4e8a63e43b8'}></script>
       </head>
       <body>
         <PolarisAppProvider>

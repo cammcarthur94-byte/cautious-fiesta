@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMockProductsWithAudits } from '@/lib/mock/sample-catalog';
 import { getServiceSupabase } from '@/lib/supabase/client';
+import { getSessionByShop, exchangeSessionTokenForOfflineAccessToken } from '@/lib/shopify/session';
 import { runDeterministicAudit } from '@/lib/scoring/deterministic';
 import { ShopifyProductItem } from '@/lib/scoring/types';
 import { checkShopQuota } from '@/lib/billing/plan-limits';
@@ -16,12 +17,21 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const shopDomain = searchParams.get('shop') || 'demo-store.myshopify.com';
 
+    let authHeader = req.headers.get('authorization') || '';
+    let sessionToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+
     let products: ShopifyProductItem[] = [];
 
     if (shopDomain === 'demo-store.myshopify.com') {
       // Return demo products strictly for demo store
       products = getMockProductsWithAudits();
     } else if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      if (sessionToken) {
+        const session = await getSessionByShop(shopDomain);
+        if (!session?.accessToken) {
+          await exchangeSessionTokenForOfflineAccessToken(shopDomain, sessionToken);
+        }
+      }
       // Live mode for actual store: query database
       products = await fetchLiveProducts(shopDomain, page, limit);
     }
